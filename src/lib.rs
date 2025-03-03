@@ -1,11 +1,16 @@
 use anyhow::{Context, Result};
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::min,
+    collections::HashMap,
+    fmt::{self, Display},
     io::Write,
     path::PathBuf,
     process::{Command, Stdio},
+    sync::Arc,
 };
+use tokio::task::JoinHandle;
 
 pub mod default;
 
@@ -157,4 +162,126 @@ pub fn completing_read(elements: &[String]) -> Result<String> {
     let mut output = fzf.wait_with_output()?.stdout;
     output.pop();
     Ok(String::from_utf8(output)?)
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, Clone)]
+pub struct Package {
+    pub owner: String,
+    pub repo: String,
+}
+
+impl Display for Package {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.owner, self.repo)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PackageIndex {
+    pub aliases: HashMap<String, Package>,
+    pub releases: HashMap<String, String>,
+}
+
+impl PackageIndex {
+    pub fn load_or_create(path: &PathBuf) -> Result<Self> {
+        if !path.try_exists()? {
+            let index = Self {
+                aliases: HashMap::new(),
+                releases: HashMap::new(),
+            };
+            index.save(path)?;
+            return Ok(index);
+        }
+        let content = std::fs::read_to_string(path)?;
+        let index: PackageIndex = serde_json::from_str(&content)?;
+        Ok(index)
+    }
+
+    pub fn save(&self, path: &PathBuf) -> Result<()> {
+        let content = serde_json::to_string(self)?;
+        let parent = path
+            .parent()
+            .with_context(|| "Failed to get parent directory")?;
+        if !parent.try_exists()? {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    pub fn get_pkg_name(&self, name: &str) -> Result<String> {
+        let pkg_name = if name.contains('/') {
+            Some(name.to_string())
+        } else {
+            self.aliases.get(name).map(|s| s.to_string())
+        };
+        let pkg_name = pkg_name.with_context(|| format!("Package alias {} not found", name))?;
+        Ok(pkg_name)
+    }
+
+    pub fn get_release(&self, name: &str) -> Result<&str> {
+        let name = self.get_pkg_name(name)?;
+        let release = self.releases.get(&name).map(|s| s.as_str());
+        release.with_context(|| format!("Release {} not found", name))
+    }
+
+    pub async fn add_repo(&mut self, owner: &str, repo: &str) -> Result<()> {
+        let octocrab = octocrab::instance();
+        let release = octocrab.repos(owner, repo).releases().get_latest().await?;
+        let pkg_name = format!("{}/{}", owner, repo);
+        self.aliases.insert(
+            repo.to_string(),
+            Package {
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+            },
+        );
+        println!("{}: {}", pkg_name, release.tag_name);
+        self.releases.insert(pkg_name, release.tag_name);
+        Ok(())
+    }
+
+    pub async fn update(&mut self) -> Result<()> {
+        let octocrab = Arc::new(octocrab::instance());
+
+        let mut futures = Vec::new();
+        for pkg in self.aliases.values() {
+            let octocrab = Arc::clone(&octocrab);
+            let pkg = pkg.clone();
+
+            let future: JoinHandle<Result<(String, String)>> = tokio::spawn(async move {
+                let release = octocrab
+                    .repos(&pkg.owner, &pkg.repo)
+                    .releases()
+                    .get_latest()
+                    .await?;
+                Ok((pkg.to_string(), release.tag_name))
+            });
+
+            futures.push(future);
+        }
+
+        let results = join_all(futures).await;
+
+        for result in results {
+            match result? {
+                Ok((pkg_name, tag_name)) => {
+                    let existing = self
+                        .releases
+                        .get(&pkg_name)
+                        .with_context(|| format!("Package {} not found", pkg_name))?;
+                    if existing == &tag_name {
+                        continue;
+                    }
+                    println!("{}: {} -> {}", pkg_name, existing, tag_name);
+                    self.releases.insert(pkg_name, tag_name);
+                }
+                Err(e) => {
+                    eprintln!("Failed to update package: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }

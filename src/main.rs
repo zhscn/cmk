@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use cmk::{
-    CMakeProject, Target, completing_read,
+    CMakeProject, PackageIndex, Target, completing_read,
     default::{CLANG_FORMAT_CONFIG, CLANG_TIDY_CONFIG, CMAKE_LISTS, GIT_IGNORE, MAIN_CC},
 };
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,21 @@ struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Command {
+    /// Add a package to the project
+    #[clap(name = "add", visible_alias = "a")]
+    Add {
+        /// The name of the package
+        name: String,
+    },
+    /// Update the package index
+    #[clap(name = "update", visible_alias = "u")]
+    Update,
+    /// Get the release of a package
+    #[clap(name = "get", visible_alias = "g")]
+    Get {
+        /// The name of the package
+        name: String,
+    },
     /// Create a new project
     #[clap(name = "new", visible_alias = "n")]
     New {
@@ -53,11 +68,51 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Add { name } => exec_add(name).await,
+        Command::Update => exec_update().await,
+        Command::Get { name } => exec_get(name).await,
         Command::New { name } => exec_new(name).await,
         Command::Run { target, args } => exec_run(target, args),
         Command::Build { target } => exec_build(target),
         Command::Refresh => exec_refresh(),
     }
+}
+
+// ========== Add command ==========
+
+async fn exec_add(name: String) -> Result<()> {
+    let home = std::env::var("HOME")?;
+    let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
+    let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
+    let (owner, repo) = name
+        .split_once('/')
+        .with_context(|| "Invalid package name")?;
+    index.add_repo(owner, repo).await?;
+    index.save(&pkg_info_path)?;
+    Ok(())
+}
+
+// ========== Get command ==========
+
+async fn exec_get(name: String) -> Result<()> {
+    let home = std::env::var("HOME")?;
+    let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
+    let index = PackageIndex::load_or_create(&pkg_info_path)?;
+    let pkg_name = index.get_pkg_name(&name)?;
+    let release = index.get_release(&pkg_name)?;
+    println!("{}: {}", pkg_name, release);
+    Ok(())
+}
+
+// ========== Update command ==========
+
+async fn exec_update() -> Result<()> {
+    let home = std::env::var("HOME")?;
+    let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
+    let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
+    index.update().await?;
+    index.save(&pkg_info_path)?;
+    Ok(())
 }
 
 // ========== New command ==========
