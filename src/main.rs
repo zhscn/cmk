@@ -21,19 +21,19 @@ struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Command {
-    /// Add a package to the project
+    /// Add a package to the package index
     #[clap(name = "add", visible_alias = "a")]
     Add {
-        /// The name of the package
+        /// The name of the package with the format of "owner/repo"
         name: String,
     },
     /// Update the package index
     #[clap(name = "update", visible_alias = "u")]
     Update,
-    /// Get the release of a package
+    /// Get the cached release of a package in the package index
     #[clap(name = "get", visible_alias = "g")]
     Get {
-        /// The name of the package
+        /// The name or alias of the package
         name: String,
     },
     /// Create a new project
