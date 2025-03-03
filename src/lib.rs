@@ -46,7 +46,7 @@ impl CMakeProject {
         })
     }
 
-    pub fn prepare_cmake_file_api(&self) -> Result<()> {
+    fn prepare_cmake_file_api(&self) -> Result<()> {
         let query_dir = self.build_root.join(".cmake/api/v1/query");
         std::fs::create_dir_all(&query_dir)?;
         let codemodel_file = query_dir.join("codemodel-v2");
@@ -70,6 +70,10 @@ impl CMakeProject {
 
     fn collect_target_reply(&self) -> Result<Vec<String>> {
         let reply_dir = self.build_root.join(".cmake/api/v1/reply");
+        if !reply_dir.try_exists()? {
+            self.prepare_cmake_file_api()?;
+            self.refresh_build_dir()?;
+        }
         let mut reply = Vec::new();
         for entry in std::fs::read_dir(&reply_dir)? {
             let entry = entry?;
