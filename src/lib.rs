@@ -126,6 +126,33 @@ impl CMakeProject {
         Command::new(path).args(args).spawn()?.wait()?;
         Ok(())
     }
+
+    pub fn list_all_translation_units(&self) -> Result<Vec<String>> {
+        let path = self.build_root.join("compile_commands.json");
+        let content = std::fs::read_to_string(path)?;
+        let comp_db: Vec<CompDBEntry> = serde_json::from_str(&content)?;
+        let mut translation_units = Vec::new();
+        for entry in comp_db {
+            translation_units.push(entry.output);
+        }
+        Ok(translation_units)
+    }
+
+    pub fn build_tu(&self, tu: &str) -> Result<()> {
+        Command::new("ninja")
+            .args(["-C", &self.build_root.to_string_lossy(), tu])
+            .spawn()?
+            .wait()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CompDBEntry {
+    pub directory: String,
+    pub command: String,
+    pub file: String,
+    pub output: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

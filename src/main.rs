@@ -58,6 +58,12 @@ enum SubCommand {
         /// The name of the executable target
         target: Option<String>,
     },
+    /// Build the translation unit
+    #[clap(name = "build-tu", visible_alias = "tu")]
+    BuildTU {
+        /// The name of the translation unit
+        name: Option<String>,
+    },
     /// Refresh the CMake build directory
     #[clap(name = "refresh", visible_alias = "ref")]
     Refresh,
@@ -75,6 +81,7 @@ async fn main() -> Result<()> {
             SubCommand::New { name } => exec_new(name).await,
             SubCommand::Run { target, args } => exec_run(target, args),
             SubCommand::Build { target } => exec_build(target),
+            SubCommand::BuildTU { name } => exec_build_tu(name),
             SubCommand::Refresh => exec_refresh(),
         }
     } else {
@@ -264,6 +271,19 @@ fn exec_build(target: Option<String>) -> Result<()> {
     Ok(())
 }
 
+// ========== BuildTU command ==========
+
+fn exec_build_tu(name: Option<String>) -> Result<()> {
+    let project = CMakeProject::new()?;
+    let tu = if let Some(name) = name {
+        name
+    } else {
+        let tu = project.list_all_translation_units()?;
+        completing_read(&tu)?
+    };
+    project.build_tu(&tu)?;
+    Ok(())
+}
 // ========== Refresh command ==========
 
 fn exec_refresh() -> Result<()> {
