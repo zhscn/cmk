@@ -16,11 +16,11 @@ use sha2::Digest;
 #[command(version, about)]
 struct Cli {
     #[clap(subcommand)]
-    command: Command,
+    command: SubCommand,
 }
 
 #[derive(Debug, clap::Subcommand)]
-enum Command {
+enum SubCommand {
     /// Add a package to the package index
     #[clap(name = "add", visible_alias = "a")]
     Add {
@@ -68,13 +68,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Add { name } => exec_add(name).await,
-        Command::Update => exec_update().await,
-        Command::Get { name } => exec_get(name).await,
-        Command::New { name } => exec_new(name).await,
-        Command::Run { target, args } => exec_run(target, args),
-        Command::Build { target } => exec_build(target),
-        Command::Refresh => exec_refresh(),
+        SubCommand::Add { name } => exec_add(name).await,
+        SubCommand::Update => exec_update().await,
+        SubCommand::Get { name } => exec_get(name).await,
+        SubCommand::New { name } => exec_new(name).await,
+        SubCommand::Run { target, args } => exec_run(target, args),
+        SubCommand::Build { target } => exec_build(target),
+        SubCommand::Refresh => exec_refresh(),
     }
 }
 
