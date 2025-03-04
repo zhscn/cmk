@@ -16,7 +16,7 @@ use sha2::Digest;
 #[command(version, about)]
 struct Cli {
     #[clap(subcommand)]
-    command: SubCommand,
+    command: Option<SubCommand>,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -67,14 +67,18 @@ enum SubCommand {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
-        SubCommand::Add { name } => exec_add(name).await,
-        SubCommand::Update => exec_update().await,
-        SubCommand::Get { name } => exec_get(name).await,
-        SubCommand::New { name } => exec_new(name).await,
-        SubCommand::Run { target, args } => exec_run(target, args),
-        SubCommand::Build { target } => exec_build(target),
-        SubCommand::Refresh => exec_refresh(),
+    if let Some(command) = cli.command {
+        match command {
+            SubCommand::Add { name } => exec_add(name).await,
+            SubCommand::Update => exec_update().await,
+            SubCommand::Get { name } => exec_get(name).await,
+            SubCommand::New { name } => exec_new(name).await,
+            SubCommand::Run { target, args } => exec_run(target, args),
+            SubCommand::Build { target } => exec_build(target),
+            SubCommand::Refresh => exec_refresh(),
+        }
+    } else {
+        exec_build(None)
     }
 }
 
