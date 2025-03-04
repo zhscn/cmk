@@ -112,6 +112,9 @@ async fn exec_update() -> Result<()> {
     let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
     index.update().await?;
     index.save(&pkg_info_path)?;
+    let new_cpm = CpmInfo::query_from_github().await?;
+    let cpm_info_path = Path::new(&home).join(".config/cmk/cpm.json");
+    new_cpm.save(cpm_info_path)?;
     Ok(())
 }
 
