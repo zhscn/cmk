@@ -128,14 +128,23 @@ impl CMakeProject {
     }
 
     pub fn list_all_translation_units(&self) -> Result<Vec<String>> {
-        let path = self.build_root.join("compile_commands.json");
-        let content = std::fs::read_to_string(path)?;
-        let comp_db: Vec<CompDBEntry> = serde_json::from_str(&content)?;
-        let mut translation_units = Vec::new();
-        for entry in comp_db {
-            translation_units.push(entry.output);
-        }
-        Ok(translation_units)
+        let ninja = Command::new("ninja")
+            .args([
+                "-C",
+                &self.build_root.to_string_lossy(),
+                "-t",
+                "targets",
+                "all",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let output = ninja.wait_with_output()?;
+        let output = String::from_utf8(output.stdout)?;
+        Ok(output
+            .split('\n')
+            .filter(|line| line.contains(".o: "))
+            .map(|line| line.split(": ").next().unwrap().to_string())
+            .collect())
     }
 
     pub fn build_tu(&self, tu: &str) -> Result<()> {
