@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -105,7 +105,7 @@ impl CMakeProject {
     }
 
     pub fn build_target(&self, target: &str) -> Result<()> {
-        Command::new("cmake")
+        let ret = Command::new("cmake")
             .args([
                 "--build",
                 &self.build_root.to_string_lossy(),
@@ -114,6 +114,9 @@ impl CMakeProject {
             ])
             .spawn()?
             .wait()?;
+        if !ret.success() {
+            return Err(anyhow!("{}", ret));
+        }
         Ok(())
     }
 
@@ -122,7 +125,10 @@ impl CMakeProject {
         let path = self
             .build_root
             .join(&target.artifacts.as_ref().unwrap()[0].path);
-        Command::new(path).args(args).spawn()?.wait()?;
+        let ret = Command::new(path).args(args).spawn()?.wait()?;
+        if !ret.success() {
+            return Err(anyhow!("{}", ret));
+        }
         Ok(())
     }
 
@@ -147,10 +153,13 @@ impl CMakeProject {
     }
 
     pub fn build_tu(&self, tu: &str) -> Result<()> {
-        Command::new("ninja")
+        let ret = Command::new("ninja")
             .args(["-C", &self.build_root.to_string_lossy(), tu])
             .spawn()?
             .wait()?;
+        if !ret.success() {
+            return Err(anyhow!("{}", ret))
+        }
         Ok(())
     }
 }
