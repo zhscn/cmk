@@ -26,6 +26,7 @@ impl CMakeProject {
                 "--show-superproject-working-tree",
                 "--show-toplevel",
             ])
+            .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "1")
             .output()?;
         let output = String::from_utf8(output.stdout)?;
         let head = output
