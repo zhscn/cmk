@@ -121,8 +121,26 @@ impl CMakeProject {
         Ok(())
     }
 
+    fn build_target_slient(&self, target: &str) -> Result<()> {
+        let ret = Command::new("cmake")
+            .args([
+                "--build",
+                &self.build_root.to_string_lossy(),
+                "--target",
+                target,
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?
+            .wait()?;
+        if !ret.success() {
+            return Err(anyhow!("{}", ret));
+        }
+        Ok(())
+    }
+
     pub fn run_target(&self, target: &Target, args: &[String]) -> Result<()> {
-        self.build_target(&target.name)?;
+        self.build_target_slient(&target.name)?;
         let path = self
             .build_root
             .join(&target.artifacts.as_ref().unwrap()[0].path);
