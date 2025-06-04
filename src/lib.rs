@@ -177,7 +177,7 @@ impl CMakeProject {
             .spawn()?
             .wait()?;
         if !ret.success() {
-            return Err(anyhow!("{}", ret))
+            return Err(anyhow!("{}", ret));
         }
         Ok(())
     }
