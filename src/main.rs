@@ -238,7 +238,7 @@ async fn exec_new(name: String) -> Result<()> {
 
 fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
     let project = CMakeProject::new()?;
-    let targets = project.collect_executable_targets()?;
+    let targets = project.collect_executable_targets(None)?;
     if targets.is_empty() {
         return Err(anyhow!("Exectuable targets not fount"));
     }
@@ -263,7 +263,7 @@ fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
                 .with_context(|| format!("Target {} not found", target_name))?
         }
     };
-    project.run_target(target, &args)?;
+    project.run_target(target, &args, None)?;
     Ok(())
 }
 
@@ -271,7 +271,7 @@ fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
 
 fn exec_build(target: Option<String>) -> Result<()> {
     let project = CMakeProject::new()?;
-    project.build_target(target.unwrap_or("all".to_string()).as_str())?;
+    project.build_target(target.unwrap_or("all".to_string()).as_str(), None)?;
     Ok(())
 }
 
@@ -282,17 +282,17 @@ fn exec_build_tu(name: Option<String>) -> Result<()> {
     let tu = if let Some(name) = name {
         name
     } else {
-        let tu = project.list_all_translation_units()?;
+        let tu = project.list_all_translation_units(None)?;
         completing_read(&tu)?
     };
     println!("build TU: {}", tu);
-    project.build_tu(&tu)?;
+    project.build_tu(&tu, None)?;
     Ok(())
 }
 // ========== Refresh command ==========
 
 fn exec_refresh() -> Result<()> {
     let project = CMakeProject::new()?;
-    project.refresh_build_dir()?;
+    project.refresh_build_dir(None)?;
     Ok(())
 }
