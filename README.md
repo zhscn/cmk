@@ -7,6 +7,3 @@ The missing tools in CMake:
 Requirement:
 1. Only works with CMake projects with `Ninja` as the generator(`Ninja Multi-Config` is not supported).
 2. `fzf` is required for interactive selection.
-
-TODO:
-1. Support discovering nested build subdirectories from the project root.
