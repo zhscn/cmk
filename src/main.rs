@@ -45,6 +45,9 @@ enum SubCommand {
     /// Run the executable target
     #[clap(name = "run", visible_alias = "r")]
     Run {
+        /// The path to the build directory relative to the project root
+        #[clap(short, long)]
+        build: Option<String>,
         /// The name of the executable target
         #[clap(short, long)]
         target: Option<String>,
@@ -55,18 +58,27 @@ enum SubCommand {
     /// Build the project
     #[clap(name = "build", visible_alias = "b")]
     Build {
+        /// The path to the build directory relative to the project root
+        #[clap(short, long)]
+        build: Option<String>,
         /// The name of the executable target
         target: Option<String>,
     },
     /// Build the translation unit
     #[clap(name = "build-tu", visible_alias = "tu")]
     BuildTU {
+        /// The path to the build directory relative to the project root
+        #[clap(short, long)]
+        build: Option<String>,
         /// The name of the translation unit
         name: Option<String>,
     },
     /// Refresh the CMake build directory
     #[clap(name = "refresh", visible_alias = "ref")]
-    Refresh,
+    Refresh {
+        /// The path to the build directory relative to the project root
+        build: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -79,13 +91,17 @@ async fn main() -> Result<()> {
             SubCommand::Update => exec_update().await,
             SubCommand::Get { name } => exec_get(name).await,
             SubCommand::New { name } => exec_new(name).await,
-            SubCommand::Run { target, args } => exec_run(target, args),
-            SubCommand::Build { target } => exec_build(target),
-            SubCommand::BuildTU { name } => exec_build_tu(name),
-            SubCommand::Refresh => exec_refresh(),
+            SubCommand::Run {
+                target,
+                args,
+                build,
+            } => exec_run(target, args, build),
+            SubCommand::Build { target, build } => exec_build(target, build),
+            SubCommand::BuildTU { name, build } => exec_build_tu(name, build),
+            SubCommand::Refresh { build } => exec_refresh(build),
         }
     } else {
-        exec_build(None)
+        exec_build(None, None)
     }
 }
 
@@ -236,9 +252,9 @@ async fn exec_new(name: String) -> Result<()> {
 
 // ========== Run command ==========
 
-fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
+fn exec_run(target: Option<String>, args: Vec<String>, build: Option<String>) -> Result<()> {
     let project = CMakeProject::new()?;
-    let targets = project.collect_executable_targets(None)?;
+    let targets = project.collect_executable_targets(build.as_deref())?;
     if targets.is_empty() {
         return Err(anyhow!("Exectuable targets not fount"));
     }
@@ -269,20 +285,23 @@ fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
 
 // ========== Build command ==========
 
-fn exec_build(target: Option<String>) -> Result<()> {
+fn exec_build(target: Option<String>, build: Option<String>) -> Result<()> {
     let project = CMakeProject::new()?;
-    project.build_target(target.unwrap_or("all".to_string()).as_str(), None)?;
+    project.build_target(
+        target.unwrap_or("all".to_string()).as_str(),
+        build.as_deref(),
+    )?;
     Ok(())
 }
 
 // ========== BuildTU command ==========
 
-fn exec_build_tu(name: Option<String>) -> Result<()> {
+fn exec_build_tu(name: Option<String>, build: Option<String>) -> Result<()> {
     let project = CMakeProject::new()?;
     let tu = if let Some(name) = name {
         name
     } else {
-        let tu = project.list_all_translation_units(None)?;
+        let tu = project.list_all_translation_units(build.as_deref())?;
         completing_read(&tu)?
     };
     println!("build TU: {}", tu);
@@ -291,8 +310,8 @@ fn exec_build_tu(name: Option<String>) -> Result<()> {
 }
 // ========== Refresh command ==========
 
-fn exec_refresh() -> Result<()> {
+fn exec_refresh(build: Option<String>) -> Result<()> {
     let project = CMakeProject::new()?;
-    project.refresh_build_dir(None)?;
+    project.refresh_build_dir(build.as_deref())?;
     Ok(())
 }
