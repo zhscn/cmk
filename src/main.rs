@@ -61,6 +61,13 @@ enum SubCommand {
         /// The path to the build directory relative to the project root
         #[clap(short, long)]
         build: Option<String>,
+        /// Select the target to build interactively. When the target is
+        /// specified, this option is ignored.
+        #[clap(short, long, default_value_t = false)]
+        interactive: bool,
+        /// Run n jobs in parallel
+        #[clap(short, long)]
+        jobs: Option<usize>,
         /// The name of the executable target
         target: Option<String>,
     },
@@ -96,12 +103,17 @@ async fn main() -> Result<()> {
                 args,
                 build,
             } => exec_run(target, args, build),
-            SubCommand::Build { target, build } => exec_build(target, build),
+            SubCommand::Build {
+                target,
+                build,
+                interactive,
+                jobs,
+            } => exec_build(target, build, interactive, jobs),
             SubCommand::BuildTU { name, build } => exec_build_tu(name, build),
             SubCommand::Refresh { build } => exec_refresh(build),
         }
     } else {
-        exec_build(None, None)
+        exec_build(None, None, false, None)
     }
 }
 
@@ -285,11 +297,32 @@ fn exec_run(target: Option<String>, args: Vec<String>, build: Option<String>) ->
 
 // ========== Build command ==========
 
-fn exec_build(target: Option<String>, build: Option<String>) -> Result<()> {
+fn exec_build(
+    target: Option<String>,
+    build: Option<String>,
+    interactive: bool,
+    jobs: Option<usize>,
+) -> Result<()> {
     let project = CMakeProject::new()?;
+    let build = if build.is_some() {
+        build.unwrap().to_string()
+    } else {
+        completing_read(&project.list_build_dirs())?
+    };
+    let target = if interactive && target.is_none() {
+        let targets = project.collect_executable_targets(Some(&build))?;
+        if targets.is_empty() {
+            return Err(anyhow!("No buildable targets found"));
+        }
+        let target_names = targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
+        completing_read(&target_names)?
+    } else {
+        target.unwrap_or_else(|| "all".to_string())
+    };
     project.build_target(
-        target.unwrap_or("all".to_string()).as_str(),
-        build.as_deref(),
+        &target,
+        Some(&build),
+        jobs.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get()),
     )?;
     Ok(())
 }
