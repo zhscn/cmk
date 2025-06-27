@@ -307,7 +307,12 @@ fn exec_build(
     let build = if let Some(dir) = build {
         dir
     } else {
-        completing_read(&project.list_build_dirs())?
+        let dirs = project.list_build_dirs();
+        if dirs.len() == 1 {
+            dirs[0].clone()
+        } else {
+            completing_read(&dirs)?
+        }
     };
     let target = if interactive && target.is_none() {
         let targets = project.collect_executable_targets(Some(&build))?;
