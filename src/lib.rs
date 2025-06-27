@@ -95,7 +95,7 @@ impl CMakeProject {
     pub fn get_build_dir(&self, build_dir_name: &str) -> Result<&PathBuf> {
         self.build_dirs
             .get(build_dir_name)
-            .with_context(|| format!("Build directory '{}' not found", build_dir_name))
+            .with_context(|| format!("Build directory '{build_dir_name}' not found"))
     }
 
     fn detect_pwd(&self) -> Option<&PathBuf> {
@@ -391,20 +391,20 @@ impl PackageIndex {
         } else {
             self.aliases.get(name).map(|s| s.to_string())
         };
-        let pkg_name = pkg_name.with_context(|| format!("Package alias {} not found", name))?;
+        let pkg_name = pkg_name.with_context(|| format!("Package alias {name} not found"))?;
         Ok(pkg_name)
     }
 
     pub fn get_release(&self, name: &str) -> Result<&str> {
         let name = self.get_pkg_name(name)?;
         let release = self.releases.get(&name).map(|s| s.as_str());
-        release.with_context(|| format!("Release {} not found", name))
+        release.with_context(|| format!("Release {name} not found"))
     }
 
     pub async fn add_repo(&mut self, owner: &str, repo: &str) -> Result<()> {
         let octocrab = octocrab::instance();
         let release = octocrab.repos(owner, repo).releases().get_latest().await?;
-        let pkg_name = format!("{}/{}", owner, repo);
+        let pkg_name = format!("{owner}/{repo}");
         self.aliases.insert(
             repo.to_string(),
             Package {
@@ -443,15 +443,15 @@ impl PackageIndex {
                     let existing = self
                         .releases
                         .get(&pkg_name)
-                        .with_context(|| format!("Package {} not found", pkg_name))?;
+                        .with_context(|| format!("Package {pkg_name} not found"))?;
                     if existing == &tag_name {
                         continue;
                     }
-                    println!("{}: {} -> {}", pkg_name, existing, tag_name);
+                    println!("{pkg_name}: {existing} -> {tag_name}");
                     self.releases.insert(pkg_name, tag_name);
                 }
                 Err(e) => {
-                    eprintln!("Failed to update package: {}", e);
+                    eprintln!("Failed to update package: {e}");
                 }
             }
         }

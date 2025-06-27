@@ -139,7 +139,7 @@ async fn exec_get(name: String) -> Result<()> {
     let index = PackageIndex::load_or_create(&pkg_info_path)?;
     let pkg_name = index.get_pkg_name(&name)?;
     let release = index.get_release(&pkg_name)?;
-    println!("{}: {}", pkg_name, release);
+    println!("{pkg_name}: {release}");
     Ok(())
 }
 
@@ -213,7 +213,7 @@ impl CpmInfo {
 
         Ok(CpmInfo {
             version: tag.to_string(),
-            sha256: format!("{:x}", sha256),
+            sha256: format!("{sha256:x}"),
         })
     }
 }
@@ -277,7 +277,7 @@ fn exec_run(target: Option<String>, args: Vec<String>, build: Option<String>) ->
     let target = if let Some(target) = target {
         targets
             .get(&target)
-            .with_context(|| format!("Target {} not found", target))?
+            .with_context(|| format!("Target {target} not found"))?
     } else {
         let target_names = targets.keys().map(|s| s.to_string()).collect::<Vec<_>>();
         if target_names.len() == 1 {
@@ -288,7 +288,7 @@ fn exec_run(target: Option<String>, args: Vec<String>, build: Option<String>) ->
             let target_name = completing_read(&target_names)?;
             targets
                 .get(&target_name)
-                .with_context(|| format!("Target {} not found", target_name))?
+                .with_context(|| format!("Target {target_name} not found"))?
         }
     };
     project.run_target(target, &args, None)?;
@@ -304,8 +304,8 @@ fn exec_build(
     jobs: Option<usize>,
 ) -> Result<()> {
     let project = CMakeProject::new()?;
-    let build = if build.is_some() {
-        build.unwrap().to_string()
+    let build = if let Some(dir) = build {
+        dir
     } else {
         completing_read(&project.list_build_dirs())?
     };
@@ -337,7 +337,7 @@ fn exec_build_tu(name: Option<String>, build: Option<String>) -> Result<()> {
         let tu = project.list_all_translation_units(build.as_deref())?;
         completing_read(&tu)?
     };
-    println!("build TU: {}", tu);
+    println!("build TU: {tu}");
     project.build_tu(&tu, None)?;
     Ok(())
 }
