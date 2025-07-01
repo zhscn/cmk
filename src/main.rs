@@ -17,6 +17,9 @@ use sha2::Digest;
 struct Cli {
     #[clap(subcommand)]
     command: Option<SubCommand>,
+    /// Run the default build command if no subcommand is provided
+    #[clap(short, long, value_name = "BUILD_DIR")]
+    build: Option<String>,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -113,7 +116,7 @@ async fn main() -> Result<()> {
             SubCommand::Refresh { build } => exec_refresh(build),
         }
     } else {
-        exec_build(None, None, false, None)
+        exec_build(None, cli.build, false, None)
     }
 }
 
