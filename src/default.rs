@@ -61,13 +61,20 @@ Checks: '
         performance-*,
         portability-*,
         readability-*,
+        -bugprone-easily-swappable-parameters,
         -cppcoreguidelines-avoid-magic-numbers,
+        -cppcoreguidelines-non-private-member-variables-in-classes,
         -modernize-use-nodiscard,
+        -modernize-use-ranges,
         -modernize-use-trailing-return-type,
         -readability-identifier-length,
         -readability-magic-numbers,
         -readability-qualified-auto
         '
+
+CheckOptions:
+  - key: cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove
+    value: true
 "#;
 
 pub const CMAKE_LISTS: &str = r#"cmake_minimum_required(VERSION 3.20)
