@@ -72,7 +72,8 @@ Checks: '
         -readability-function-cognitive-complexity,
         -readability-magic-numbers,
         -readability-math-missing-parentheses,
-        -readability-qualified-auto
+        -readability-qualified-auto,
+        -readability-static-accessed-through-instance
         '
 
 CheckOptions:
@@ -96,6 +97,8 @@ endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_compile_options(-Wall -Wextra -pedantic)
 
 ### CPM
 set(CPM_DOWNLOAD_VERSION "{cpm_version}")
