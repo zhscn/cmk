@@ -285,6 +285,7 @@ fn exec_build_tu(name: Option<String>) -> Result<()> {
         let tu = project.list_all_translation_units()?;
         completing_read(&tu)?
     };
+    println!("build TU: {}", tu);
     project.build_tu(&tu)?;
     Ok(())
 }
