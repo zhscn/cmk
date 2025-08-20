@@ -64,11 +64,14 @@ Checks: '
         -bugprone-easily-swappable-parameters,
         -cppcoreguidelines-avoid-magic-numbers,
         -cppcoreguidelines-non-private-member-variables-in-classes,
+        -cppcoreguidelines-pro-type-vararg,
         -modernize-use-nodiscard,
         -modernize-use-ranges,
         -modernize-use-trailing-return-type,
         -readability-identifier-length,
+        -readability-function-cognitive-complexity,
         -readability-magic-numbers,
+        -readability-math-missing-parentheses,
         -readability-qualified-auto
         '
 
@@ -117,7 +120,7 @@ endif()
 include(${CPM_DOWNLOAD_LOCATION})
 
 ### Library
-CPMAddPackage("gh:fmtlib/fmt#11.1.3")
+CPMAddPackage("gh:fmtlib/fmt#11.2.0")
 
 ### Executable
 add_executable({name} src/main.cc)
@@ -127,7 +130,7 @@ target_link_libraries({name} PRIVATE fmt::fmt)
 pub const MAIN_CC: &str = r#"#include <fmt/format.h>
 
 int main() {
-    fmt::print("Hello, world!\n");
+    fmt::println("Hello, world!");
     return 0;
 }
 "#;
