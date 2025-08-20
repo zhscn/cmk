@@ -105,6 +105,14 @@ impl CMakeProject {
             .find(|&path| path == &pwd || pwd.starts_with(path))
     }
 
+    pub fn detect_pwd_key(&self) -> Option<String> {
+        let pwd = std::env::current_dir().ok()?;
+        self.build_dirs
+            .iter()
+            .find(|(_, path)| path == &&pwd || pwd.starts_with(path))
+            .map(|(key, _)| key.clone())
+    }
+
     pub fn get_build_dir_from_input(&self) -> Result<&PathBuf> {
         if self.build_dirs.len() == 1 {
             self.build_dirs

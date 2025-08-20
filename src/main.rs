@@ -305,11 +305,20 @@ fn exec_build(
 ) -> Result<()> {
     let project = CMakeProject::new()?;
     let build = if let Some(dir) = build {
-        dir
+        let bp = PathBuf::from(&dir);
+        let rp = if bp.is_absolute() {
+            bp.strip_prefix(&project.project_root)?.to_owned()
+        } else {
+            let p = std::env::current_dir()?.join(bp);
+            p.strip_prefix(&project.project_root)?.to_owned()
+        };
+        rp.to_string_lossy().to_string()
     } else {
         let dirs = project.list_build_dirs();
         if dirs.len() == 1 {
             dirs[0].clone()
+        } else if let Some(k) = project.detect_pwd_key() {
+            k
         } else {
             completing_read(&dirs)?
         }
