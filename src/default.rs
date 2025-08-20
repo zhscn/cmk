@@ -128,6 +128,8 @@ CPMAddPackage("gh:fmtlib/fmt#11.2.0")
 ### Executable
 add_executable({name} src/main.cc)
 target_link_libraries({name} PRIVATE fmt::fmt)
+target_compile_options({name} PRIVATE $<$<CONFIG:Debug>:-fsanitize=address,undefined>)
+target_link_options({name} PRIVATE $<$<CONFIG:Debug>:-fsanitize=address,undefined>)
 "#;
 
 pub const MAIN_CC: &str = r#"#include <fmt/format.h>
