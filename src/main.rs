@@ -27,6 +27,7 @@ struct Cli {
     #[clap(short, long)]
     jobs: Option<usize>,
     /// Run the default build command
+    #[clap(short, long)]
     target: Option<String>,
 }
 
