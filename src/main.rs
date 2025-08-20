@@ -136,8 +136,9 @@ fn get_default_jobs() -> usize {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or_else(|| {
             std::thread::available_parallelism()
-                .unwrap_or(NonZero::new(1).unwrap())
+                .unwrap_or(NonZero::new(2).unwrap())
                 .get()
+                - 1
         })
 }
 

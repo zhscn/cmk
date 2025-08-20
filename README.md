@@ -8,3 +8,6 @@ Requirement:
 1. Only works with CMake projects with `Ninja` as the generator(`Ninja Multi-Config` is not supported).
 2. `fzf` is required for interactive selection.
 3. The project root discovery only works in a git repository.
+
+Environment Variables:
+- `CMK_DEFAULT_JOBS`: The default number of build jobs to use. If not set, it defaults to the number of available CPU cores minus one.
