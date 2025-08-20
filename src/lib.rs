@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 use tokio::task::JoinHandle;
@@ -15,7 +15,7 @@ pub mod default;
 
 pub struct CMakeProject {
     pub project_root: PathBuf,
-    pub build_root: PathBuf,
+    pub build_dirs: HashMap<String, PathBuf>,
 }
 
 impl CMakeProject {
@@ -34,25 +34,56 @@ impl CMakeProject {
             .next()
             .with_context(|| "No git repository found")?;
         let project_root = PathBuf::from(head);
-        let mut build_root = None;
+        let mut build_dirs = HashMap::new();
+
         for entry in std::fs::read_dir(&project_root)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 let path = entry.path();
                 if path.join("CMakeCache.txt").exists() {
-                    build_root = Some(path);
+                    let relative_path = path
+                        .strip_prefix(&project_root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string();
+                    build_dirs.insert(relative_path, path);
                 }
             }
         }
-        let build_root = build_root.with_context(|| "No CMake build directory found")?;
+
+        if build_dirs.is_empty() {
+            return Err(anyhow!("No CMake build directories found"));
+        }
+
         Ok(Self {
             project_root,
-            build_root,
+            build_dirs,
         })
     }
 
-    fn prepare_cmake_file_api(&self) -> Result<()> {
-        let query_dir = self.build_root.join(".cmake/api/v1/query");
+    pub fn get_build_dir(&self, build_dir_name: &str) -> Result<&PathBuf> {
+        self.build_dirs
+            .get(build_dir_name)
+            .with_context(|| format!("Build directory '{}' not found", build_dir_name))
+    }
+
+    pub fn get_build_dir_from_input(&self) -> Result<&PathBuf> {
+        if self.build_dirs.len() == 1 {
+            self.build_dirs
+                .values()
+                .next()
+                .with_context(|| "No build directories available")
+        } else {
+            Ok(&self.build_dirs[&completing_read(&self.list_build_dirs())?])
+        }
+    }
+
+    pub fn list_build_dirs(&self) -> Vec<String> {
+        self.build_dirs.keys().cloned().collect()
+    }
+
+    fn prepare_cmake_file_api(&self, build_dir: &Path) -> Result<()> {
+        let query_dir = build_dir.join(".cmake/api/v1/query");
         std::fs::create_dir_all(&query_dir)?;
         let codemodel_file = query_dir.join("codemodel-v2");
         if !codemodel_file.try_exists()? {
@@ -61,23 +92,33 @@ impl CMakeProject {
         Ok(())
     }
 
-    pub fn refresh_build_dir(&self) -> Result<()> {
+    pub fn refresh_build_dir(&self, build_dir_name: Option<&str>) -> Result<()> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
         Command::new("cmake")
             .args([
                 "-S",
                 &self.project_root.to_string_lossy(),
                 "-B",
-                &self.build_root.to_string_lossy(),
+                &build_dir.to_string_lossy(),
             ])
             .output()?;
         Ok(())
     }
 
-    fn collect_target_reply(&self) -> Result<Vec<String>> {
-        let reply_dir = self.build_root.join(".cmake/api/v1/reply");
+    fn collect_target_reply(&self, build_dir_name: Option<&str>) -> Result<Vec<String>> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
+        let reply_dir = build_dir.join(".cmake/api/v1/reply");
         if !reply_dir.try_exists()? {
-            self.prepare_cmake_file_api()?;
-            self.refresh_build_dir()?;
+            self.prepare_cmake_file_api(build_dir)?;
+            self.refresh_build_dir(build_dir_name)?;
         }
         let mut reply = Vec::new();
         for entry in std::fs::read_dir(&reply_dir)? {
@@ -91,11 +132,16 @@ impl CMakeProject {
         Ok(reply)
     }
 
-    pub fn collect_executable_targets(&self) -> Result<Vec<Target>> {
-        let reply = self.collect_target_reply()?;
+    pub fn collect_executable_targets(&self, build_dir_name: Option<&str>) -> Result<Vec<Target>> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
+        let reply = self.collect_target_reply(build_dir_name)?;
         let mut targets = Vec::new();
         for reply in reply {
-            let path = self.build_root.join(".cmake/api/v1/reply/").join(&reply);
+            let path = build_dir.join(".cmake/api/v1/reply/").join(&reply);
             let content = std::fs::read_to_string(path)?;
             let target = serde_json::from_str::<Target>(&content)?;
             if target.is_executable() && target.artifacts.is_some() {
@@ -105,14 +151,14 @@ impl CMakeProject {
         Ok(targets)
     }
 
-    pub fn build_target(&self, target: &str) -> Result<()> {
+    pub fn build_target(&self, target: &str, build_dir_name: Option<&str>) -> Result<()> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
         let ret = Command::new("cmake")
-            .args([
-                "--build",
-                &self.build_root.to_string_lossy(),
-                "--target",
-                target,
-            ])
+            .args(["--build", &build_dir.to_string_lossy(), "--target", target])
             .spawn()?
             .wait()?;
         if !ret.success() {
@@ -121,14 +167,14 @@ impl CMakeProject {
         Ok(())
     }
 
-    fn build_target_slient(&self, target: &str) -> Result<()> {
+    fn build_target_slient(&self, target: &str, build_dir_name: Option<&str>) -> Result<()> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
         let ret = Command::new("cmake")
-            .args([
-                "--build",
-                &self.build_root.to_string_lossy(),
-                "--target",
-                target,
-            ])
+            .args(["--build", &build_dir.to_string_lossy(), "--target", target])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?
@@ -139,11 +185,19 @@ impl CMakeProject {
         Ok(())
     }
 
-    pub fn run_target(&self, target: &Target, args: &[String]) -> Result<()> {
-        self.build_target_slient(&target.name)?;
-        let path = self
-            .build_root
-            .join(&target.artifacts.as_ref().unwrap()[0].path);
+    pub fn run_target(
+        &self,
+        target: &Target,
+        args: &[String],
+        build_dir_name: Option<&str>,
+    ) -> Result<()> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
+        self.build_target_slient(&target.name, build_dir_name)?;
+        let path = build_dir.join(&target.artifacts.as_ref().unwrap()[0].path);
         let ret = Command::new(path).args(args).spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
@@ -151,15 +205,14 @@ impl CMakeProject {
         Ok(())
     }
 
-    pub fn list_all_translation_units(&self) -> Result<Vec<String>> {
+    pub fn list_all_translation_units(&self, build_dir_name: Option<&str>) -> Result<Vec<String>> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
         let ninja = Command::new("ninja")
-            .args([
-                "-C",
-                &self.build_root.to_string_lossy(),
-                "-t",
-                "targets",
-                "all",
-            ])
+            .args(["-C", &build_dir.to_string_lossy(), "-t", "targets", "all"])
             .stdout(Stdio::piped())
             .spawn()?;
         let output = ninja.wait_with_output()?;
@@ -171,9 +224,14 @@ impl CMakeProject {
             .collect())
     }
 
-    pub fn build_tu(&self, tu: &str) -> Result<()> {
+    pub fn build_tu(&self, tu: &str, build_dir_name: Option<&str>) -> Result<()> {
+        let build_dir = match build_dir_name {
+            Some(name) => self.get_build_dir(name)?,
+            None => self.get_build_dir_from_input()?,
+        };
+
         let ret = Command::new("ninja")
-            .args(["-C", &self.build_root.to_string_lossy(), tu])
+            .args(["-C", &build_dir.to_string_lossy(), tu])
             .spawn()?
             .wait()?;
         if !ret.success() {
