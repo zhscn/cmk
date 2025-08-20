@@ -202,7 +202,7 @@ impl CMakeProject {
         Ok(())
     }
 
-    fn build_target_slient(&self, target: &str, build_dir_name: Option<&str>) -> Result<()> {
+    fn build_target_silent(&self, target: &str, build_dir_name: Option<&str>) -> Result<()> {
         let build_dir = match build_dir_name {
             Some(name) => self.get_build_dir(name)?,
             None => self.get_build_dir_from_input()?,
@@ -231,7 +231,7 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        self.build_target_slient(&target.name, build_dir_name)?;
+        self.build_target_silent(&target.name, build_dir_name)?;
         let path = build_dir.join(&target.artifacts.as_ref().unwrap()[0].path);
         let ret = Command::new(path).args(args).spawn()?.wait()?;
         if !ret.success() {
@@ -315,8 +315,11 @@ pub fn completing_read(elements: &[String]) -> Result<String> {
         child_stdin.write_all(element.as_bytes())?;
         child_stdin.write_all(b"\n")?;
     }
+    drop(child_stdin);
     let mut output = fzf.wait_with_output()?.stdout;
-    output.pop();
+    if output.ends_with(b"\n") {
+        output.pop();
+    }
     Ok(String::from_utf8(output)?)
 }
 
