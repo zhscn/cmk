@@ -191,14 +191,26 @@ impl CMakeProject {
         Ok(targets)
     }
 
-    pub fn build_target(&self, target: &str, build_dir_name: Option<&str>) -> Result<()> {
+    pub fn build_target(
+        &self,
+        target: &str,
+        build_dir_name: Option<&str>,
+        jobs: usize,
+    ) -> Result<()> {
         let build_dir = match build_dir_name {
             Some(name) => self.get_build_dir(name)?,
             None => self.get_build_dir_from_input()?,
         };
 
         let ret = Command::new("cmake")
-            .args(["--build", &build_dir.to_string_lossy(), "--target", target])
+            .args([
+                "--build",
+                &build_dir.to_string_lossy(),
+                "--target",
+                target,
+                "-j",
+                &jobs.to_string(),
+            ])
             .spawn()?
             .wait()?;
         if !ret.success() {
