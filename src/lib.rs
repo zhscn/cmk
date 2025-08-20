@@ -102,12 +102,21 @@ impl CMakeProject {
             .with_context(|| format!("Build directory '{}' not found", build_dir_name))
     }
 
+    fn detect_pwd(&self) -> Option<&PathBuf> {
+        let pwd = std::env::current_dir().ok()?;
+        self.build_dirs
+            .values()
+            .find(|&path| path == &pwd || pwd.starts_with(path))
+    }
+
     pub fn get_build_dir_from_input(&self) -> Result<&PathBuf> {
         if self.build_dirs.len() == 1 {
             self.build_dirs
                 .values()
                 .next()
                 .with_context(|| "No build directories available")
+        } else if let Some(p) = self.detect_pwd() {
+            Ok(p)
         } else {
             Ok(&self.build_dirs[&completing_read(&self.list_build_dirs())?])
         }
