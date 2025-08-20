@@ -165,8 +165,11 @@ async fn exec_new(name: String) -> Result<()> {
 
 fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
     let project = CMakeProject::new()?;
-    let targets: HashMap<String, Target> = project
-        .collect_executable_targets()?
+    let targets = project.collect_executable_targets()?;
+    if targets.is_empty() {
+        return Err(anyhow!("Exectuable targets not fount"));
+    }
+    let targets: HashMap<String, Target> = targets
         .into_iter()
         .map(|target| (target.name.clone(), target))
         .collect();
@@ -176,10 +179,6 @@ fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
             .with_context(|| format!("Target {} not found", target))?
     } else {
         let target_names = targets.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-        if target_names.is_empty() {
-            return Err(anyhow!("Exectuable targets not fount"));
-        }
-
         if target_names.len() == 1 {
             targets
                 .get(&target_names[0])
