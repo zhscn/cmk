@@ -4,5 +4,9 @@ The missing tools in CMake:
 3. `cmk build`: Automatically discovers the project's build directory and invokes the build process from any subdirectory.
 4. `cmk build-tu`: Speeds up iteration by compiling a single source file (translation unit) on its own.
 
+Requirement:
+1. Only works with CMake projects with `Ninja` as the generator(`Ninja Multi-Config` is not supported).
+2. `fzf` is required for interactive selection.
+
 TODO:
 1. Support discovering nested build subdirectories from the project root.
