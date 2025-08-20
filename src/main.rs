@@ -176,10 +176,20 @@ fn exec_run(target: Option<String>, args: Vec<String>) -> Result<()> {
             .with_context(|| format!("Target {} not found", target))?
     } else {
         let target_names = targets.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-        let target_name = completing_read(&target_names)?;
-        targets
-            .get(&target_name)
-            .with_context(|| format!("Target {} not found", target_name))?
+        if target_names.is_empty() {
+            return Err(anyhow!("Exectuable targets not fount"));
+        }
+
+        if target_names.len() == 1 {
+            targets
+                .get(&target_names[0])
+                .with_context(|| format!("Target {} not found", target_names[0]))?
+        } else {
+            let target_name = completing_read(&target_names)?;
+            targets
+                .get(&target_name)
+                .with_context(|| format!("Target {} not found", target_name))?
+        }
     };
     project.run_target(target, &args)?;
     Ok(())
