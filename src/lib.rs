@@ -44,7 +44,7 @@ impl CMakeProject {
         let project_root = PathBuf::from(head);
         let mut build_dirs = HashMap::new();
 
-        Self::collect_build_dirs(&project_root, &project_root, &mut build_dirs, 0, max_depth)?;
+        Self::collect_build_dirs(&project_root, &project_root, &mut build_dirs, 1, max_depth)?;
 
         if build_dirs.is_empty() {
             return Err(anyhow!("No CMake build directories found"));
@@ -63,10 +63,6 @@ impl CMakeProject {
         current_depth: usize,
         max_depth: usize,
     ) -> Result<()> {
-        if current_depth > max_depth {
-            return Ok(());
-        }
-
         for entry in std::fs::read_dir(current_dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
