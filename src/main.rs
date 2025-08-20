@@ -22,13 +22,13 @@ struct Cli {
 #[derive(Debug, clap::Subcommand)]
 enum Command {
     /// Create a new project
-    #[clap(name = "new")]
+    #[clap(name = "new", visible_alias = "n")]
     New {
         /// The name of the project
         name: String,
     },
     /// Run the executable target
-    #[clap(name = "run")]
+    #[clap(name = "run", visible_alias = "r")]
     Run {
         /// The name of the executable target
         #[clap(short, long)]
@@ -38,13 +38,13 @@ enum Command {
         args: Vec<String>,
     },
     /// Build the project
-    #[clap(name = "build")]
+    #[clap(name = "build", visible_alias = "b")]
     Build {
         /// The name of the executable target
         target: Option<String>,
     },
     /// Refresh the CMake build directory
-    #[clap(name = "refresh")]
+    #[clap(name = "refresh", visible_alias = "ref")]
     Refresh,
 }
 
