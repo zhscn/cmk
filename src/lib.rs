@@ -20,6 +20,14 @@ pub struct CMakeProject {
 
 impl CMakeProject {
     pub fn new() -> Result<Self> {
+        let max_depth = std::env::var("CMK_MAX_DEPTH")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(2);
+        Self::new_with_max_depth(max_depth)
+    }
+
+    fn new_with_max_depth(max_depth: usize) -> Result<Self> {
         let output = Command::new("git")
             .args([
                 "rev-parse",
@@ -36,20 +44,7 @@ impl CMakeProject {
         let project_root = PathBuf::from(head);
         let mut build_dirs = HashMap::new();
 
-        for entry in std::fs::read_dir(&project_root)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                let path = entry.path();
-                if path.join("CMakeCache.txt").exists() {
-                    let relative_path = path
-                        .strip_prefix(&project_root)
-                        .unwrap()
-                        .to_string_lossy()
-                        .to_string();
-                    build_dirs.insert(relative_path, path);
-                }
-            }
-        }
+        Self::collect_build_dirs(&project_root, &project_root, &mut build_dirs, 0, max_depth)?;
 
         if build_dirs.is_empty() {
             return Err(anyhow!("No CMake build directories found"));
@@ -59,6 +54,46 @@ impl CMakeProject {
             project_root,
             build_dirs,
         })
+    }
+
+    fn collect_build_dirs(
+        project_root: &Path,
+        current_dir: &Path,
+        build_dirs: &mut HashMap<String, PathBuf>,
+        current_depth: usize,
+        max_depth: usize,
+    ) -> Result<()> {
+        if current_depth > max_depth {
+            return Ok(());
+        }
+
+        for entry in std::fs::read_dir(current_dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                let path = entry.path();
+
+                if path.join("CMakeCache.txt").try_exists()? {
+                    let relative_path = path
+                        .strip_prefix(project_root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string();
+                    build_dirs.insert(relative_path, path.clone());
+                }
+
+                if current_depth < max_depth {
+                    Self::collect_build_dirs(
+                        project_root,
+                        &path,
+                        build_dirs,
+                        current_depth + 1,
+                        max_depth,
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn get_build_dir(&self, build_dir_name: &str) -> Result<&PathBuf> {
