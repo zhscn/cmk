@@ -8,7 +8,6 @@ use std::{
     io::Write,
     path::PathBuf,
     process::{Command, Stdio},
-    sync::Arc,
 };
 use tokio::task::JoinHandle;
 
@@ -278,11 +277,11 @@ impl PackageIndex {
     }
 
     pub async fn update(&mut self) -> Result<()> {
-        let octocrab = Arc::new(octocrab::instance());
+        let octocrab = octocrab::instance();
 
         let mut futures = Vec::new();
         for pkg in self.aliases.values() {
-            let octocrab = Arc::clone(&octocrab);
+            let octocrab = octocrab.clone();
             let pkg = pkg.clone();
 
             let future: JoinHandle<Result<(String, String)>> = tokio::spawn(async move {
@@ -297,9 +296,7 @@ impl PackageIndex {
             futures.push(future);
         }
 
-        let results = join_all(futures).await;
-
-        for result in results {
+        for result in join_all(futures).await {
             match result? {
                 Ok((pkg_name, tag_name)) => {
                     let existing = self
