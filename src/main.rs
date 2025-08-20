@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    num::NonZero,
     path::{Path, PathBuf},
 };
 
@@ -127,6 +128,17 @@ async fn main() -> Result<()> {
     } else {
         exec_build(cli.target, cli.build, cli.interactive, cli.jobs)
     }
+}
+
+fn get_default_jobs() -> usize {
+    std::env::var("CMK_DEFAULT_JOBS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .unwrap_or(NonZero::new(1).unwrap())
+                .get()
+        })
 }
 
 // ========== Add command ==========
@@ -345,11 +357,7 @@ fn exec_build(
     } else {
         target.unwrap_or_else(|| "all".to_string())
     };
-    project.build_target(
-        &target,
-        Some(&build),
-        jobs.unwrap_or_else(|| std::thread::available_parallelism().unwrap().get()),
-    )?;
+    project.build_target(&target, Some(&build), jobs.unwrap_or_else(get_default_jobs))?;
     Ok(())
 }
 
