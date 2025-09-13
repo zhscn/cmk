@@ -44,11 +44,9 @@ pub const CLANG_FORMAT_CONFIG: &str = r#"---
 Language:        Cpp
 BasedOnStyle:  Google
 AccessModifierOffset: -2
-AllowShortFunctionsOnASingleLine: Empty
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: false
 IncludeBlocks: Preserve
 IndentCaseLabels: false
+PointerAlignment: Left
 ...
 "#;
 
