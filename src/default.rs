@@ -121,7 +121,7 @@ endif()
 include(${CPM_DOWNLOAD_LOCATION})
 
 ### Library
-CPMAddPackage("gh:fmtlib/fmt#11.2.0")
+CPMAddPackage("gh:fmtlib/fmt#12.1.0")
 
 ### Executable
 add_executable({name} src/main.cc)
