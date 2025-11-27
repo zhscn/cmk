@@ -122,7 +122,11 @@ impl CMakeProject {
         } else if let Some(p) = self.detect_pwd() {
             Ok(p)
         } else {
-            Ok(&self.build_dirs[&completing_read(&self.list_build_dirs())?])
+            let res = completing_read(&self.list_build_dirs())?;
+            if res.is_empty() {
+                return Err(anyhow!("No build directory selected"));
+            }
+            Ok(&self.build_dirs[&res])
         }
     }
 
@@ -299,14 +303,6 @@ impl CMakeProject {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct CompDBEntry {
-    pub directory: String,
-    pub command: String,
-    pub file: String,
-    pub output: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -311,6 +311,9 @@ fn exec_run(target: Option<String>, args: Vec<String>, build: Option<String>) ->
                 .with_context(|| format!("Target {} not found", target_names[0]))?
         } else {
             let target_name = completing_read(&target_names)?;
+            if target_name.is_empty() {
+                return Err(anyhow!("No target selected"));
+            }
             targets
                 .get(&target_name)
                 .with_context(|| format!("Target {target_name} not found"))?
@@ -345,7 +348,11 @@ fn exec_build(
         } else if let Some(k) = project.detect_pwd_key() {
             k
         } else {
-            completing_read(&dirs)?
+            let res = completing_read(&dirs)?;
+            if res.is_empty() {
+                return Err(anyhow!("No build directory selected"));
+            }
+            res
         }
     };
     let target = if interactive && target.is_none() {
@@ -354,7 +361,11 @@ fn exec_build(
             return Err(anyhow!("No buildable targets found"));
         }
         let target_names = targets.iter().map(|t| t.name.clone()).collect::<Vec<_>>();
-        completing_read(&target_names)?
+        let target_name = completing_read(&target_names)?;
+        if target_name.is_empty() {
+            return Err(anyhow!("No target selected"));
+        }
+        target_name
     } else {
         target.unwrap_or_else(|| "all".to_string())
     };
@@ -370,7 +381,11 @@ fn exec_build_tu(name: Option<String>, build: Option<String>) -> Result<()> {
         name
     } else {
         let tu = project.list_all_translation_units(build.as_deref())?;
-        completing_read(&tu)?
+        let tu = completing_read(&tu)?;
+        if tu.is_empty() {
+            return Err(anyhow!("No translation unit selected"));
+        }
+        tu
     };
     println!("build TU: {tu}");
     project.build_tu(&tu, None)?;
