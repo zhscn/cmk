@@ -13,6 +13,99 @@ use tokio::task::JoinHandle;
 
 pub mod default;
 
+fn expand_env_vars(value: &str) -> String {
+    let mut result = String::new();
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            if chars.peek() == Some(&'{') {
+                // Handle ${VAR} syntax
+                chars.next(); // consume '{'
+                let mut var_name = String::new();
+                let mut found_closing = false;
+
+                while let Some(&next_ch) = chars.peek() {
+                    if next_ch == '}' {
+                        chars.next(); // consume '}'
+                        found_closing = true;
+                        break;
+                    }
+                    var_name.push(chars.next().unwrap());
+                }
+
+                if found_closing {
+                    if let Ok(env_value) = std::env::var(&var_name) {
+                        result.push_str(&env_value);
+                    } else {
+                        // Keep original if var not found
+                        result.push_str(&format!("${{{}}}", var_name));
+                    }
+                } else {
+                    // Malformed, keep original
+                    result.push_str(&format!("${{{}", var_name));
+                }
+            } else {
+                // Handle $VAR syntax
+                let mut var_name = String::new();
+
+                while let Some(&next_ch) = chars.peek() {
+                    if next_ch.is_alphanumeric() || next_ch == '_' {
+                        var_name.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+
+                if !var_name.is_empty() {
+                    if let Ok(env_value) = std::env::var(&var_name) {
+                        result.push_str(&env_value);
+                    } else {
+                        // Keep original if var not found
+                        result.push_str(&format!("${}", var_name));
+                    }
+                } else {
+                    // Just a $ with no valid var name
+                    result.push('$');
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
+fn load_env_from_file(project_root: &Path) -> Result<HashMap<String, String>> {
+    let env_file = project_root.join(".cmkenv");
+    let mut env_vars = HashMap::new();
+
+    if !env_file.try_exists()? {
+        return Ok(env_vars);
+    }
+
+    let content = std::fs::read_to_string(&env_file)?;
+    for line in content.lines() {
+        let line = line.trim();
+        // Skip empty lines and comments
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Parse key=value pairs
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim().to_string();
+            let value = value.trim();
+            // Expand environment variables in the value
+            let expanded_value = expand_env_vars(value);
+            env_vars.insert(key, expanded_value);
+        }
+    }
+
+    Ok(env_vars)
+}
+
 pub struct CMakeProject {
     pub project_root: PathBuf,
     pub build_dirs: HashMap<String, PathBuf>,
@@ -210,17 +303,22 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        let ret = Command::new("cmake")
-            .args([
-                "--build",
-                &build_dir.to_string_lossy(),
-                "--target",
-                target,
-                "-j",
-                &jobs.to_string(),
-            ])
-            .spawn()?
-            .wait()?;
+        let env_vars = load_env_from_file(&self.project_root)?;
+        let mut cmd = Command::new("cmake");
+        cmd.args([
+            "--build",
+            &build_dir.to_string_lossy(),
+            "--target",
+            target,
+            "-j",
+            &jobs.to_string(),
+        ]);
+
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
@@ -233,12 +331,17 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        let ret = Command::new("cmake")
-            .args(["--build", &build_dir.to_string_lossy(), "--target", target])
+        let env_vars = load_env_from_file(&self.project_root)?;
+        let mut cmd = Command::new("cmake");
+        cmd.args(["--build", &build_dir.to_string_lossy(), "--target", target])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?
-            .wait()?;
+            .stderr(Stdio::null());
+
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
@@ -258,7 +361,16 @@ impl CMakeProject {
 
         self.build_target_silent(&target.name, build_dir_name)?;
         let path = build_dir.join(&target.artifacts.as_ref().unwrap()[0].path);
-        let ret = Command::new(path).args(args).spawn()?.wait()?;
+
+        let env_vars = load_env_from_file(&self.project_root)?;
+        let mut cmd = Command::new(path);
+        cmd.args(args);
+
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
