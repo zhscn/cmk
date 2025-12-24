@@ -12,10 +12,14 @@ use std::{
 use tokio::task::JoinHandle;
 
 pub mod default;
+pub mod env;
+
+pub use env::EnvConfig;
 
 pub struct CMakeProject {
     pub project_root: PathBuf,
     pub build_dirs: HashMap<String, PathBuf>,
+    pub env_config: EnvConfig,
 }
 
 impl CMakeProject {
@@ -50,9 +54,12 @@ impl CMakeProject {
             return Err(anyhow!("No CMake build directories found"));
         }
 
+        let env_config = EnvConfig::load(&project_root)?;
+
         Ok(Self {
             project_root,
             build_dirs,
+            env_config,
         })
     }
 
@@ -150,14 +157,15 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        Command::new("cmake")
-            .args([
-                "-S",
-                &self.project_root.to_string_lossy(),
-                "-B",
-                &build_dir.to_string_lossy(),
-            ])
-            .output()?;
+        let mut cmd = Command::new("cmake");
+        cmd.args([
+            "-S",
+            &self.project_root.to_string_lossy(),
+            "-B",
+            &build_dir.to_string_lossy(),
+        ]);
+        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        cmd.output()?;
         Ok(())
     }
 
@@ -214,17 +222,17 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        let ret = Command::new("cmake")
-            .args([
-                "--build",
-                &build_dir.to_string_lossy(),
-                "--target",
-                target,
-                "-j",
-                &jobs.to_string(),
-            ])
-            .spawn()?
-            .wait()?;
+        let mut cmd = Command::new("cmake");
+        cmd.args([
+            "--build",
+            &build_dir.to_string_lossy(),
+            "--target",
+            target,
+            "-j",
+            &jobs.to_string(),
+        ]);
+        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
@@ -237,12 +245,12 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        let ret = Command::new("cmake")
-            .args(["--build", &build_dir.to_string_lossy(), "--target", target])
+        let mut cmd = Command::new("cmake");
+        cmd.args(["--build", &build_dir.to_string_lossy(), "--target", target])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?
-            .wait()?;
+            .stderr(Stdio::null());
+        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
@@ -262,7 +270,10 @@ impl CMakeProject {
 
         self.build_target_silent(&target.name, build_dir_name)?;
         let path = build_dir.join(&target.artifacts.as_ref().unwrap()[0].path);
-        let ret = Command::new(path).args(args).spawn()?.wait()?;
+        let mut cmd = Command::new(path);
+        cmd.args(args);
+        self.env_config.apply_to_command(&mut cmd, &self.env_config.run_env(Some(&target.name), Some(build_dir)));
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
@@ -275,10 +286,11 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        let ninja = Command::new("ninja")
-            .args(["-C", &build_dir.to_string_lossy(), "-t", "targets", "all"])
-            .stdout(Stdio::piped())
-            .spawn()?;
+        let mut cmd = Command::new("ninja");
+        cmd.args(["-C", &build_dir.to_string_lossy(), "-t", "targets", "all"])
+            .stdout(Stdio::piped());
+        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        let ninja = cmd.spawn()?;
         let output = ninja.wait_with_output()?;
         let output = String::from_utf8(output.stdout)?;
         Ok(output
@@ -294,10 +306,10 @@ impl CMakeProject {
             None => self.get_build_dir_from_input()?,
         };
 
-        let ret = Command::new("ninja")
-            .args(["-C", &build_dir.to_string_lossy(), tu])
-            .spawn()?
-            .wait()?;
+        let mut cmd = Command::new("ninja");
+        cmd.args(["-C", &build_dir.to_string_lossy(), tu]);
+        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
         }
