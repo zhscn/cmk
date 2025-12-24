@@ -11,3 +11,25 @@ Requirement:
 
 Environment Variables:
 - `CMK_DEFAULT_JOBS`: The default number of build jobs to use. If not set, it defaults to the number of available CPU cores minus one.
+
+Example of `.cmk.toml`:
+
+```toml
+[vars]
+DEPS_DIR = "${PROJECT_ROOT}/.deps"
+DEPS_INSTALL = "${DEPS_DIR}/install"
+
+[env]
+PATH = { prepend = ["${DEPS_INSTALL}/bin"] }
+CPATH = { prepend = ["${DEPS_INSTALL}/include"] }
+PKG_CONFIG_PATH = { prepend = ["${DEPS_INSTALL}/lib/pkgconfig"] }
+LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib"] }
+
+[env.macos]
+DYLD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib"] }
+
+[env.linux]
+LD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib", "${DEPS_INSTALL}/lib64"] }
+PKG_CONFIG_PATH = { prepend = ["${DEPS_INSTALL}/lib64/pkgconfig"] }
+LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib64"] }
+```
