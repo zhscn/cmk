@@ -112,6 +112,12 @@ enum SubCommand {
         /// Format only unstaged files
         #[clap(short, long, conflicts_with_all = ["all", "staged"])]
         unstaged: bool,
+        /// Print files that would be formatted without modifying them
+        #[clap(short, long)]
+        dry_run: bool,
+        /// Print verbose output
+        #[clap(short, long)]
+        verbose: bool,
     },
 }
 
@@ -142,7 +148,9 @@ async fn main() -> Result<()> {
                 all,
                 staged,
                 unstaged,
-            } => exec_fmt(all, staged, unstaged),
+                dry_run,
+                verbose,
+            } => exec_fmt(all, staged, unstaged, dry_run, verbose),
         }
     } else {
         exec_build(cli.target, cli.build, cli.interactive, cli.jobs)
@@ -427,7 +435,7 @@ fn is_c_or_cpp(magika: &mut magika::Session, path: &Path) -> bool {
     matches!(result.info().label, "c" | "cpp")
 }
 
-fn exec_fmt(all: bool, staged: bool, unstaged: bool) -> Result<()> {
+fn exec_fmt(all: bool, staged: bool, unstaged: bool, dry_run: bool, verbose: bool) -> Result<()> {
     let project_root = get_project_root()?;
 
     let git = |args: &[&str]| -> Result<String> {
@@ -465,6 +473,10 @@ fn exec_fmt(all: bool, staged: bool, unstaged: bool) -> Result<()> {
         .filter(|path| path.exists())
         .collect();
 
+    if verbose {
+        println!("Found {} candidate file(s).", candidates.len());
+    }
+
     if candidates.is_empty() {
         println!("No source files to format.");
         return Ok(());
@@ -473,11 +485,28 @@ fn exec_fmt(all: bool, staged: bool, unstaged: bool) -> Result<()> {
     let mut magika = magika::Session::new()?;
     let files: Vec<&PathBuf> = candidates
         .iter()
-        .filter(|path| is_c_or_cpp(&mut magika, path))
+        .filter(|path| {
+            let is_src = is_c_or_cpp(&mut magika, path);
+            if verbose && !is_src {
+                println!("Skipping (not C/C++): {}", path.display());
+            }
+            is_src
+        })
         .collect();
 
     if files.is_empty() {
         println!("No source files to format.");
+        return Ok(());
+    }
+
+    if verbose || dry_run {
+        for file in &files {
+            println!("{}", file.display());
+        }
+    }
+
+    if dry_run {
+        println!("{} file(s) would be formatted.", files.len());
         return Ok(());
     }
 
