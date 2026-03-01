@@ -16,6 +16,7 @@ toml = "0.9"
 sha2 = "0.10.9"
 tokio = { version = "1.48.0", features = ["net", "macros", "rt-multi-thread"] }
 magika = "1.0"
+ort = { version = "2.0.0-rc.11", features = ["download-binaries"] }
 crossbeam = "0.8"
 
 [profile.release]
