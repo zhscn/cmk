@@ -1,10 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{
-    collections::HashMap,
-    path::Path,
-    process::Command,
-};
+use std::{collections::HashMap, path::Path, process::Command};
 
 const CONFIG_FILE_NAME: &str = ".cmk.toml";
 
@@ -126,9 +122,10 @@ impl EnvConfig {
         };
 
         // Add PROJECT_ROOT as a built-in variable
-        config
-            .vars
-            .insert("PROJECT_ROOT".to_string(), project_root.display().to_string());
+        config.vars.insert(
+            "PROJECT_ROOT".to_string(),
+            project_root.display().to_string(),
+        );
 
         // Parse the env section
         for (key, value) in raw.env {
@@ -284,12 +281,18 @@ impl EnvConfig {
     fn expand_env_value(&self, value: &EnvValue, build_dir: Option<&Path>) -> EnvValue {
         match value {
             EnvValue::Set(s) => EnvValue::Set(self.expand_vars(s, build_dir)),
-            EnvValue::Prepend(paths) => {
-                EnvValue::Prepend(paths.iter().map(|p| self.expand_vars(p, build_dir)).collect())
-            }
-            EnvValue::Append(paths) => {
-                EnvValue::Append(paths.iter().map(|p| self.expand_vars(p, build_dir)).collect())
-            }
+            EnvValue::Prepend(paths) => EnvValue::Prepend(
+                paths
+                    .iter()
+                    .map(|p| self.expand_vars(p, build_dir))
+                    .collect(),
+            ),
+            EnvValue::Append(paths) => EnvValue::Append(
+                paths
+                    .iter()
+                    .map(|p| self.expand_vars(p, build_dir))
+                    .collect(),
+            ),
         }
     }
 
@@ -315,7 +318,11 @@ impl EnvConfig {
     }
 
     /// Build environment for running a target
-    pub fn run_env(&self, target_name: Option<&str>, build_dir: Option<&Path>) -> HashMap<String, String> {
+    pub fn run_env(
+        &self,
+        target_name: Option<&str>,
+        build_dir: Option<&Path>,
+    ) -> HashMap<String, String> {
         let mut result = HashMap::new();
 
         // Layer: common -> platform -> run -> target-specific
@@ -323,10 +330,10 @@ impl EnvConfig {
         self.apply_layer(&mut result, self.platform_env(), build_dir);
         self.apply_layer(&mut result, &self.run, build_dir);
 
-        if let Some(name) = target_name {
-            if let Some(target_env) = self.run_targets.get(name) {
-                self.apply_layer(&mut result, target_env, build_dir);
-            }
+        if let Some(name) = target_name
+            && let Some(target_env) = self.run_targets.get(name)
+        {
+            self.apply_layer(&mut result, target_env, build_dir);
         }
 
         result
@@ -343,10 +350,7 @@ impl EnvConfig {
             let expanded = self.expand_env_value(value, build_dir);
 
             // Get existing value from result or from actual environment
-            let existing_val = result
-                .get(key)
-                .cloned()
-                .or_else(|| std::env::var(key).ok());
+            let existing_val = result.get(key).cloned().or_else(|| std::env::var(key).ok());
 
             let resolved = expanded.resolve(existing_val.as_deref());
             result.insert(key.clone(), resolved);
@@ -398,7 +402,10 @@ LD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib", "${DEPS_INSTALL}/lib64"] }
         let project_root = PathBuf::from("/test/project");
         let config = EnvConfig::parse(content, &project_root).unwrap();
 
-        assert_eq!(config.vars.get("DEPS_DIR").unwrap(), "${PROJECT_ROOT}/.deps");
+        assert_eq!(
+            config.vars.get("DEPS_DIR").unwrap(),
+            "${PROJECT_ROOT}/.deps"
+        );
         assert!(config.common.contains_key("CC"));
         assert!(config.common.contains_key("PATH"));
         assert!(config.build.contains_key("CXX"));
@@ -410,8 +417,12 @@ LD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib", "${DEPS_INSTALL}/lib64"] }
     #[test]
     fn test_expand_vars() {
         let mut config = EnvConfig::default();
-        config.vars.insert("PROJECT_ROOT".to_string(), "/test".to_string());
-        config.vars.insert("DEPS_DIR".to_string(), "${PROJECT_ROOT}/.deps".to_string());
+        config
+            .vars
+            .insert("PROJECT_ROOT".to_string(), "/test".to_string());
+        config
+            .vars
+            .insert("DEPS_DIR".to_string(), "${PROJECT_ROOT}/.deps".to_string());
 
         // First level expansion
         let result = config.expand_vars("${PROJECT_ROOT}/bin", None);

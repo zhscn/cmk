@@ -3,6 +3,7 @@ The missing tools in CMake:
 2. `cmk run`: Builds and runs a specified executable target, getting rid of the build directory and binary path.
 3. `cmk build`: Automatically discovers the project's build directory and invokes the build process from any subdirectory.
 4. `cmk build-tu`: Speeds up iteration by compiling a single source file (translation unit) on its own.
+5. `cmk fmt`: Formats C/C++ source files with `clang-format`. Uses [magika](https://github.com/google/magika) for content-based file type detection. Supports `--all` (all tracked files), `--staged`, and `--unstaged` flags.
 
 Requirement:
 1. Only works with CMake projects with `Ninja` as the generator(`Ninja Multi-Config` is not supported).

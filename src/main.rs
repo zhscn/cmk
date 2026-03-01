@@ -9,6 +9,7 @@ use clap::Parser;
 use cmk::{
     CMakeProject, PackageIndex, Target, completing_read,
     default::{CLANG_FORMAT_CONFIG, CLANG_TIDY_CONFIG, CMAKE_LISTS, GIT_IGNORE, MAIN_CC},
+    get_project_root,
 };
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -99,6 +100,19 @@ enum SubCommand {
         /// The path to the build directory relative to the project root
         build: Option<String>,
     },
+    /// Format source files with clang-format
+    #[clap(name = "fmt", visible_alias = "f")]
+    Fmt {
+        /// Format all tracked source files
+        #[clap(short, long, conflicts_with_all = ["staged", "unstaged"])]
+        all: bool,
+        /// Format only staged files
+        #[clap(short, long, conflicts_with_all = ["all", "unstaged"])]
+        staged: bool,
+        /// Format only unstaged files
+        #[clap(short, long, conflicts_with_all = ["all", "staged"])]
+        unstaged: bool,
+    },
 }
 
 #[tokio::main]
@@ -124,6 +138,11 @@ async fn main() -> Result<()> {
             } => exec_build(target, build, interactive, jobs),
             SubCommand::BuildTU { name, build } => exec_build_tu(name, build),
             SubCommand::Refresh { build } => exec_refresh(build),
+            SubCommand::Fmt {
+                all,
+                staged,
+                unstaged,
+            } => exec_fmt(all, staged, unstaged),
         }
     } else {
         exec_build(cli.target, cli.build, cli.interactive, cli.jobs)
@@ -396,5 +415,101 @@ fn exec_build_tu(name: Option<String>, build: Option<String>) -> Result<()> {
 fn exec_refresh(build: Option<String>) -> Result<()> {
     let project = CMakeProject::new()?;
     project.refresh_build_dir(build.as_deref())?;
+    Ok(())
+}
+
+// ========== Fmt command ==========
+
+fn is_c_or_cpp(magika: &mut magika::Session, path: &Path) -> bool {
+    let Ok(result) = magika.identify_file_sync(path) else {
+        return false;
+    };
+    matches!(result.info().label, "c" | "cpp")
+}
+
+fn exec_fmt(all: bool, staged: bool, unstaged: bool) -> Result<()> {
+    let project_root = get_project_root()?;
+
+    let git = |args: &[&str]| -> Result<String> {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&project_root)
+            .output()?;
+        Ok(String::from_utf8(output.stdout)?)
+    };
+
+    let output_str = if all {
+        git(&["ls-files"])?
+    } else if staged {
+        git(&["diff", "--name-only", "--cached"])?
+    } else if unstaged {
+        git(&["diff", "--name-only"])?
+    } else {
+        // Default: both staged + unstaged vs HEAD
+        let output = std::process::Command::new("git")
+            .args(["diff", "--name-only", "HEAD"])
+            .current_dir(&project_root)
+            .output()?;
+        if output.status.success() {
+            String::from_utf8(output.stdout)?
+        } else {
+            // Fresh repo with no commits: fall back to --cached
+            git(&["diff", "--name-only", "--cached"])?
+        }
+    };
+
+    let candidates: Vec<PathBuf> = output_str
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| project_root.join(line))
+        .filter(|path| path.exists())
+        .collect();
+
+    if candidates.is_empty() {
+        println!("No source files to format.");
+        return Ok(());
+    }
+
+    let mut magika = magika::Session::new()?;
+    let files: Vec<&PathBuf> = candidates
+        .iter()
+        .filter(|path| is_c_or_cpp(&mut magika, path))
+        .collect();
+
+    if files.is_empty() {
+        println!("No source files to format.");
+        return Ok(());
+    }
+
+    let jobs = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let chunk_size = files.len().div_ceil(jobs);
+
+    let failed = std::sync::atomic::AtomicBool::new(false);
+    crossbeam::scope(|s| {
+        for chunk in files.chunks(chunk_size) {
+            let failed = &failed;
+            let project_root = &project_root;
+            s.spawn(move |_| {
+                let ret = std::process::Command::new("clang-format")
+                    .arg("-i")
+                    .args(chunk)
+                    .current_dir(project_root)
+                    .spawn()
+                    .and_then(|mut child| child.wait());
+                if !matches!(ret, Ok(status) if status.success()) {
+                    failed.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            });
+        }
+    })
+    .map_err(|_| anyhow!("clang-format thread panicked"))?;
+
+    if failed.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err(anyhow!("clang-format failed"));
+    }
+
+    println!("Formatted {} file(s).", files.len());
     Ok(())
 }

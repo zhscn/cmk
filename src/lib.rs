@@ -22,6 +22,23 @@ pub struct CMakeProject {
     pub env_config: EnvConfig,
 }
 
+pub fn get_project_root() -> Result<PathBuf> {
+    let output = Command::new("git")
+        .args([
+            "rev-parse",
+            "--show-superproject-working-tree",
+            "--show-toplevel",
+        ])
+        .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "1")
+        .output()?;
+    let output = String::from_utf8(output.stdout)?;
+    let head = output
+        .split("\n")
+        .next()
+        .with_context(|| "No git repository found")?;
+    Ok(PathBuf::from(head))
+}
+
 impl CMakeProject {
     pub fn new() -> Result<Self> {
         let max_depth = std::env::var("CMK_MAX_DEPTH")
@@ -32,20 +49,7 @@ impl CMakeProject {
     }
 
     fn new_with_max_depth(max_depth: usize) -> Result<Self> {
-        let output = Command::new("git")
-            .args([
-                "rev-parse",
-                "--show-superproject-working-tree",
-                "--show-toplevel",
-            ])
-            .env("GIT_DISCOVERY_ACROSS_FILESYSTEM", "1")
-            .output()?;
-        let output = String::from_utf8(output.stdout)?;
-        let head = output
-            .split("\n")
-            .next()
-            .with_context(|| "No git repository found")?;
-        let project_root = PathBuf::from(head);
+        let project_root = get_project_root()?;
         let mut build_dirs = HashMap::new();
 
         Self::collect_build_dirs(&project_root, &project_root, &mut build_dirs, 1, max_depth)?;
@@ -164,7 +168,8 @@ impl CMakeProject {
             "-B",
             &build_dir.to_string_lossy(),
         ]);
-        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        self.env_config
+            .apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
         cmd.output()?;
         Ok(())
     }
@@ -231,7 +236,8 @@ impl CMakeProject {
             "-j",
             &jobs.to_string(),
         ]);
-        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        self.env_config
+            .apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
         let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
@@ -249,7 +255,8 @@ impl CMakeProject {
         cmd.args(["--build", &build_dir.to_string_lossy(), "--target", target])
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        self.env_config
+            .apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
         let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
@@ -272,7 +279,10 @@ impl CMakeProject {
         let path = build_dir.join(&target.artifacts.as_ref().unwrap()[0].path);
         let mut cmd = Command::new(path);
         cmd.args(args);
-        self.env_config.apply_to_command(&mut cmd, &self.env_config.run_env(Some(&target.name), Some(build_dir)));
+        self.env_config.apply_to_command(
+            &mut cmd,
+            &self.env_config.run_env(Some(&target.name), Some(build_dir)),
+        );
         let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
@@ -289,7 +299,8 @@ impl CMakeProject {
         let mut cmd = Command::new("ninja");
         cmd.args(["-C", &build_dir.to_string_lossy(), "-t", "targets", "all"])
             .stdout(Stdio::piped());
-        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        self.env_config
+            .apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
         let ninja = cmd.spawn()?;
         let output = ninja.wait_with_output()?;
         let output = String::from_utf8(output.stdout)?;
@@ -308,7 +319,8 @@ impl CMakeProject {
 
         let mut cmd = Command::new("ninja");
         cmd.args(["-C", &build_dir.to_string_lossy(), tu]);
-        self.env_config.apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
+        self.env_config
+            .apply_to_command(&mut cmd, &self.env_config.build_env(Some(build_dir)));
         let ret = cmd.spawn()?.wait()?;
         if !ret.success() {
             return Err(anyhow!("{}", ret));
