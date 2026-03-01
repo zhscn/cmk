@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     num::NonZero,
     path::{Path, PathBuf},
+    process::Stdio,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -499,21 +500,51 @@ fn exec_fmt(all: bool, staged: bool, unstaged: bool, dry_run: bool, verbose: boo
         return Ok(());
     }
 
-    if verbose || dry_run {
+    if verbose {
         for file in &files {
             println!("{}", file.display());
         }
-    }
-
-    if dry_run {
-        println!("{} file(s) would be formatted.", files.len());
-        return Ok(());
     }
 
     let jobs = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
     let chunk_size = files.len().div_ceil(jobs);
+
+    if dry_run {
+        let unformatted = std::sync::Mutex::new(Vec::new());
+        crossbeam::scope(|s| {
+            for chunk in files.chunks(chunk_size) {
+                let unformatted = &unformatted;
+                let project_root = &project_root;
+                s.spawn(move |_| {
+                    for file in chunk {
+                        let ret = std::process::Command::new("clang-format")
+                            .args(["--dry-run", "-Werror"])
+                            .arg(file)
+                            .current_dir(project_root)
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()
+                            .and_then(|mut child| child.wait());
+                        if !matches!(ret, Ok(status) if status.success()) {
+                            unformatted.lock().unwrap().push(file.display().to_string());
+                        }
+                    }
+                });
+            }
+        })
+        .map_err(|_| anyhow!("clang-format thread panicked"))?;
+
+        let unformatted = unformatted.into_inner().unwrap();
+        if unformatted.is_empty() {
+            return Ok(());
+        }
+        for file in &unformatted {
+            println!("{file}");
+        }
+        return Err(anyhow!("{} file(s) need formatting.", unformatted.len()));
+    }
 
     let failed = std::sync::atomic::AtomicBool::new(false);
     crossbeam::scope(|s| {
