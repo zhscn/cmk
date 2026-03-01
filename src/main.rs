@@ -429,11 +429,37 @@ fn exec_refresh(build: Option<String>) -> Result<()> {
 
 // ========== Fmt command ==========
 
+#[cfg(feature = "magika")]
 fn is_c_or_cpp(magika: &mut magika::Session, path: &Path) -> bool {
     let Ok(result) = magika.identify_file_sync(path) else {
         return false;
     };
     matches!(result.info().label, "c" | "cpp")
+}
+
+#[cfg(not(feature = "magika"))]
+fn is_c_or_cpp(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some(
+            "c" | "h"
+                | "cc"
+                | "cpp"
+                | "cxx"
+                | "c++"
+                | "hh"
+                | "hpp"
+                | "hxx"
+                | "h++"
+                | "ixx"
+                | "cppm"
+                | "ccm"
+                | "cxxm"
+                | "c++m"
+                | "mxx"
+                | "mpp",
+        )
+    )
 }
 
 fn exec_fmt(all: bool, staged: bool, unstaged: bool, dry_run: bool, verbose: bool) -> Result<()> {
@@ -483,11 +509,26 @@ fn exec_fmt(all: bool, staged: bool, unstaged: bool, dry_run: bool, verbose: boo
         return Ok(());
     }
 
-    let mut magika = magika::Session::new()?;
+    #[cfg(feature = "magika")]
+    let files: Vec<&PathBuf> = {
+        let mut magika = magika::Session::new()?;
+        candidates
+            .iter()
+            .filter(|path| {
+                let is_src = is_c_or_cpp(&mut magika, path);
+                if verbose && !is_src {
+                    println!("Skipping (not C/C++): {}", path.display());
+                }
+                is_src
+            })
+            .collect()
+    };
+
+    #[cfg(not(feature = "magika"))]
     let files: Vec<&PathBuf> = candidates
         .iter()
         .filter(|path| {
-            let is_src = is_c_or_cpp(&mut magika, path);
+            let is_src = is_c_or_cpp(path);
             if verbose && !is_src {
                 println!("Skipping (not C/C++): {}", path.display());
             }
