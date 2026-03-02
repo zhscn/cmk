@@ -32,7 +32,7 @@ jobs:
         uses: taiki-e/install-action@cross
 
       - name: Build
-        run: ${{ matrix.cross && 'cross' || 'cargo' }} build --release --locked --no-default-features --target ${{ matrix.target }}
+        run: ${{ matrix.cross && 'cross' || 'cargo' }} build --release --locked --target ${{ matrix.target }}
 
       - name: Package
         run: tar czf cmk-${VERSION}-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release cmk
