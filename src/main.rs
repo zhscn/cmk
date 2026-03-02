@@ -10,6 +10,7 @@ use clap::Parser;
 use cmk::{
     CMakeProject, PackageIndex, Target, completing_read,
     default::{CLANG_FORMAT_CONFIG, CLANG_TIDY_CONFIG, CMAKE_LISTS, GIT_IGNORE, MAIN_CC},
+    env::FmtConfig,
     get_project_root,
 };
 use serde::{Deserialize, Serialize};
@@ -490,6 +491,29 @@ fn exec_fmt(all: bool, staged: bool, unstaged: bool, dry_run: bool, verbose: boo
         .map(|line| project_root.join(line))
         .filter(|path| path.exists())
         .collect();
+
+    // Filter out ignored files based on .cmk.toml [fmt] ignore patterns
+    let fmt_config = FmtConfig::load(&project_root)?;
+    let candidates = if fmt_config.ignore.is_empty() {
+        candidates
+    } else {
+        let mut builder = globset::GlobSetBuilder::new();
+        for pattern in &fmt_config.ignore {
+            builder.add(globset::Glob::new(pattern)?);
+        }
+        let ignore_set = builder.build()?;
+        candidates
+            .into_iter()
+            .filter(|path| {
+                let rel = path.strip_prefix(&project_root).unwrap_or(path);
+                let ignored = ignore_set.is_match(rel);
+                if verbose && ignored {
+                    println!("Skipping (ignored): {}", rel.display());
+                }
+                !ignored
+            })
+            .collect()
+    };
 
     if verbose {
         println!("Found {} candidate file(s).", candidates.len());

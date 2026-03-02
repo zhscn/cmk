@@ -3,7 +3,7 @@ The missing tools in CMake:
 2. `cmk run`: Builds and runs a specified executable target, getting rid of the build directory and binary path.
 3. `cmk build`: Automatically discovers the project's build directory and invokes the build process from any subdirectory.
 4. `cmk build-tu`: Speeds up iteration by compiling a single source file (translation unit) on its own.
-5. `cmk fmt`: Formats C/C++ source files with `clang-format`. Supports `--all` (all tracked files), `--staged`, and `--unstaged` flags.
+5. `cmk fmt`: Formats C/C++ source files with `clang-format`. Supports `--all` (all tracked files), `--staged`, and `--unstaged` flags. Files matching `[fmt] ignore` glob patterns in `.cmk.toml` are skipped.
 
 Requirement:
 1. Only works with CMake projects with `Ninja` as the generator(`Ninja Multi-Config` is not supported).
@@ -33,4 +33,7 @@ DYLD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib"] }
 LD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib", "${DEPS_INSTALL}/lib64"] }
 PKG_CONFIG_PATH = { prepend = ["${DEPS_INSTALL}/lib64/pkgconfig"] }
 LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib64"] }
+
+[fmt]
+ignore = ["third_party/**", "*.pb.h"]
 ```
