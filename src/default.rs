@@ -151,7 +151,7 @@ BasedOnStyle:  Google
 AccessModifierOffset: -2
 IncludeBlocks: Preserve
 IndentCaseLabels: false
-PointerAlignment: Left
+PointerAlignment: Right
 ...
 "#;
 
