@@ -1,3 +1,108 @@
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Context, Result, anyhow};
+
+use crate::completing_read;
+
+pub enum Template {
+    BuiltIn,
+    Custom(PathBuf),
+}
+
+pub async fn load_template(template: Option<&str>) -> Result<Template> {
+    let home = std::env::var("HOME")?;
+    let templates_dir = Path::new(&home).join(".config/cmk/templates");
+
+    const BUILTIN_NAME: &str = "builtin";
+
+    if let Some(name) = template {
+        if name == BUILTIN_NAME {
+            return Ok(Template::BuiltIn);
+        }
+        let dir = templates_dir.join(name);
+        if !dir.is_dir() {
+            return Err(anyhow!(
+                "Template '{}' not found at {}",
+                name,
+                dir.display()
+            ));
+        }
+        return Ok(Template::Custom(dir));
+    }
+
+    if templates_dir.is_dir() {
+        let mut entries: Vec<String> = std::fs::read_dir(&templates_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+
+        if !entries.is_empty() {
+            entries.insert(0, BUILTIN_NAME.to_string());
+            let chosen = completing_read(&entries).await?;
+            if chosen == BUILTIN_NAME {
+                return Ok(Template::BuiltIn);
+            }
+            if !chosen.is_empty() {
+                return Ok(Template::Custom(templates_dir.join(&chosen)));
+            }
+        }
+    }
+
+    Ok(Template::BuiltIn)
+}
+
+impl Template {
+    pub fn apply(&self, project_dir: &Path, vars: &HashMap<&str, &str>) -> Result<()> {
+        match self {
+            Template::BuiltIn => {
+                std::fs::create_dir_all(project_dir.join("src"))?;
+                std::fs::write(project_dir.join(".gitignore"), GIT_IGNORE)?;
+                std::fs::write(project_dir.join(".clang-format"), CLANG_FORMAT_CONFIG)?;
+                std::fs::write(project_dir.join(".clang-tidy"), CLANG_TIDY_CONFIG)?;
+                std::fs::write(project_dir.join("src/main.cc"), MAIN_CC)?;
+                let cmake = substitute(CMAKE_LISTS, vars);
+                std::fs::write(project_dir.join("CMakeLists.txt"), cmake)?;
+                Ok(())
+            }
+            Template::Custom(template_dir) => copy_dir_recursive(template_dir, project_dir, vars),
+        }
+    }
+}
+
+fn substitute(content: &str, vars: &HashMap<&str, &str>) -> String {
+    let mut result = content.to_string();
+    for (key, value) in vars {
+        result = result.replace(key, value);
+    }
+    result
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path, vars: &HashMap<&str, &str>) -> Result<()> {
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let rel = src_path.strip_prefix(src)?;
+        let dst_path = dst.join(rel);
+
+        if src_path.is_dir() {
+            std::fs::create_dir_all(&dst_path)?;
+            copy_dir_recursive(&src_path, &dst_path, vars)?;
+        } else {
+            if let Some(parent) = dst_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let content = std::fs::read_to_string(&src_path)
+                .with_context(|| format!("Failed to read template file: {}", src_path.display()))?;
+            std::fs::write(&dst_path, substitute(&content, vars))?;
+        }
+    }
+    Ok(())
+}
+
 pub const GIT_IGNORE: &str = r#"# Prerequisites
 *.d
 

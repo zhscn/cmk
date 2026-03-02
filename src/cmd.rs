@@ -9,8 +9,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use cmk::{
     CMakeProject, CpmInfo, FmtConfig, PackageIndex, Target, completing_read,
-    default::{CLANG_FORMAT_CONFIG, CLANG_TIDY_CONFIG, CMAKE_LISTS, GIT_IGNORE, MAIN_CC},
-    get_project_root,
+    default::load_template, get_project_root,
 };
 use tokio::process::Command;
 
@@ -72,22 +71,18 @@ pub(crate) async fn exec_update() -> Result<()> {
 
 // ========== New command ==========
 
-pub(crate) async fn exec_new(name: String) -> Result<()> {
+pub(crate) async fn exec_new(name: String, template: Option<String>) -> Result<()> {
     let path = Path::new(&name);
     if path.try_exists()? {
         return Err(anyhow!("{} already exists", name));
     }
 
+    let template = load_template(template.as_deref()).await?;
+
     std::fs::create_dir_all(path)?;
     std::env::set_current_dir(path)?;
-    std::fs::create_dir_all("src")?;
 
     Command::new("git").arg("init").spawn()?.wait().await?;
-
-    std::fs::write(".gitignore", GIT_IGNORE).unwrap();
-    std::fs::write(".clang-format", CLANG_FORMAT_CONFIG).unwrap();
-    std::fs::write(".clang-tidy", CLANG_TIDY_CONFIG).unwrap();
-    std::fs::write("src/main.cc", MAIN_CC).unwrap();
 
     let home = std::env::var("HOME")?;
     let cpm_info_path = Path::new(&home).join(".config/cmk/cpm.json");
@@ -102,13 +97,14 @@ pub(crate) async fn exec_new(name: String) -> Result<()> {
         info.save(&cpm_info_path)?;
         info
     };
-    std::fs::write(
-        "CMakeLists.txt",
-        CMAKE_LISTS
-            .replace("{name}", &name)
-            .replace("{cpm_version}", &info.version)
-            .replace("{cpm_hash_sum}", &info.sha256),
-    )?;
+
+    let mut vars = HashMap::new();
+    vars.insert("{name}", name.as_str());
+    vars.insert("{cpm_version}", info.version.as_str());
+    vars.insert("{cpm_hash_sum}", info.sha256.as_str());
+
+    let project_dir = std::env::current_dir()?;
+    template.apply(&project_dir, &vars)?;
 
     Ok(())
 }

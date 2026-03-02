@@ -44,6 +44,9 @@ enum SubCommand {
     New {
         /// The name of the project
         name: String,
+        /// The name of the template to use
+        #[clap(short, long)]
+        template: Option<String>,
     },
     /// Run the executable target
     #[clap(name = "run", visible_alias = "r")]
@@ -119,7 +122,7 @@ async fn main() -> Result<()> {
             SubCommand::Add { name } => cmd::exec_add(name).await,
             SubCommand::Update => cmd::exec_update().await,
             SubCommand::Get { name } => cmd::exec_get(name).await,
-            SubCommand::New { name } => cmd::exec_new(name).await,
+            SubCommand::New { name, template } => cmd::exec_new(name, template).await,
             SubCommand::Run {
                 target,
                 args,
