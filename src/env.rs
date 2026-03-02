@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{collections::HashMap, path::Path, process::Command};
+use std::{collections::HashMap, path::Path};
+use tokio::process::Command;
 
 const CONFIG_FILE_NAME: &str = ".cmk.toml";
 
