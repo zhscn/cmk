@@ -399,12 +399,24 @@ pub(crate) async fn exec_fmt(
     }
 
     let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let changed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut handles = Vec::new();
     for chunk in files.chunks(chunk_size) {
         let chunk: Vec<PathBuf> = chunk.to_vec();
         let project_root = project_root.clone();
         let failed = Arc::clone(&failed);
+        let changed = Arc::clone(&changed);
         handles.push(tokio::spawn(async move {
+            let mut contents_before = Vec::with_capacity(chunk.len());
+            for file in &chunk {
+                match tokio::fs::read(file).await {
+                    Ok(bytes) => contents_before.push(bytes),
+                    Err(_) => {
+                        failed.store(true, std::sync::atomic::Ordering::Relaxed);
+                        return;
+                    }
+                }
+            }
             let ret = Command::new("clang-format")
                 .arg("-i")
                 .args(&chunk)
@@ -413,7 +425,23 @@ pub(crate) async fn exec_fmt(
                 .await;
             if !matches!(ret, Ok(ref output) if output.status.success()) {
                 failed.store(true, std::sync::atomic::Ordering::Relaxed);
+                return;
             }
+            let mut count = 0usize;
+            for (file, before) in chunk.iter().zip(contents_before.iter()) {
+                match tokio::fs::read(file).await {
+                    Ok(after) => {
+                        if after != *before {
+                            count += 1;
+                        }
+                    }
+                    Err(_) => {
+                        failed.store(true, std::sync::atomic::Ordering::Relaxed);
+                        return;
+                    }
+                }
+            }
+            changed.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
         }));
     }
     for handle in handles {
@@ -424,6 +452,7 @@ pub(crate) async fn exec_fmt(
         return Err(anyhow!("clang-format failed"));
     }
 
-    println!("Formatted {} file(s).", files.len());
+    let changed = changed.load(std::sync::atomic::Ordering::Relaxed);
+    println!("Formatted {} file(s), {} changed.", files.len(), changed);
     Ok(())
 }
