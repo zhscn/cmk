@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use cmk::{
     CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target,
-    cmake_ast::{CMakeFile, CpmInsertion},
+    cmake_ast::{CMakeFile, CpmInsertion, render_uri_as_keyword},
     completing_read, confirm, default::load_template, get_project_root,
 };
 use tokio::process::Command;
@@ -376,6 +376,74 @@ pub(crate) async fn exec_build_tu(name: Option<String>, build: Option<String>) -
 pub(crate) async fn exec_refresh(build: Option<String>) -> Result<()> {
     let project = CMakeProject::new().await?;
     project.refresh_build_dir(build.as_deref()).await?;
+    Ok(())
+}
+
+// ========== Pkg option command ==========
+
+pub(crate) async fn exec_pkg_option(name: String, opts: Vec<String>) -> Result<()> {
+    let pairs: Vec<(String, String)> = opts
+        .iter()
+        .map(|s| {
+            let (k, v) = s
+                .split_once('=')
+                .with_context(|| format!("Expected KEY=VALUE, got {s:?}"))?;
+            Ok::<_, anyhow::Error>((k.trim().to_string(), v.trim().to_string()))
+        })
+        .collect::<Result<_>>()?;
+
+    // Resolve `name` against the global index so an alias like `fmt` works.
+    let home = std::env::var("HOME").ok();
+    let resolved = home
+        .as_ref()
+        .and_then(|h| {
+            let p = Path::new(h).join(".config/cmk/pkg.json");
+            PackageIndex::load_or_create(&p).ok()
+        })
+        .and_then(|idx| idx.get_pkg_name(&name).ok())
+        .unwrap_or_else(|| name.clone());
+    let (resolved_owner, resolved_repo) = resolved
+        .split_once('/')
+        .map(|(o, r)| (o.to_string(), r.to_string()))
+        .unwrap_or_else(|| (String::new(), name.clone()));
+
+    let project_root = get_project_root().await?;
+    let path = project_root.join("CMakeLists.txt");
+    if !path.exists() {
+        return Err(anyhow!("CMakeLists.txt not found at {}", path.display()));
+    }
+
+    let mut cmake = CMakeFile::parse_path(&path)?;
+    let calls = cmake.cpm_calls();
+
+    let target = calls.into_iter().find(|c| {
+        c.uri.as_ref().is_some_and(|u| {
+            // owner/repo match wins; otherwise fall back to repo basename.
+            (!resolved_owner.is_empty()
+                && u.owner.eq_ignore_ascii_case(&resolved_owner)
+                && u.repo.eq_ignore_ascii_case(&resolved_repo))
+                || (resolved_owner.is_empty() && u.repo.eq_ignore_ascii_case(&resolved_repo))
+        })
+    });
+
+    let target = target.with_context(|| {
+        format!(
+            "No URI-form CPMAddPackage matching '{name}' found in {}",
+            path.display()
+        )
+    })?;
+    let uri = target.uri.as_ref().unwrap();
+
+    let new_text = render_uri_as_keyword(uri, &pairs);
+    cmake.splice(target.call_range.clone(), &new_text);
+    cmake.save()?;
+    println!(
+        "Rewrote {}/{} as keyword form with {} option(s) in {}",
+        uri.owner,
+        uri.repo,
+        pairs.len(),
+        path.display()
+    );
     Ok(())
 }
 

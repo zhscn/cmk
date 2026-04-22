@@ -192,6 +192,37 @@ impl CMakeFile {
     }
 }
 
+/// Render a URI-shorthand CPM call as the equivalent keyword-argument form,
+/// optionally with `OPTIONS` appended. Source-shorthand mapping mirrors CPM:
+/// `gh→GITHUB_REPOSITORY`, `gl→GITLAB_REPOSITORY`, `bb→BITBUCKET_REPOSITORY`;
+/// `#tag→GIT_TAG`, `@version→VERSION`.
+pub fn render_uri_as_keyword(uri: &CpmUri, options: &[(String, String)]) -> String {
+    let repo_key = match uri.source.as_str() {
+        "gl" => "GITLAB_REPOSITORY",
+        "bb" => "BITBUCKET_REPOSITORY",
+        _ => "GITHUB_REPOSITORY",
+    };
+    let mut out = String::from("CPMAddPackage(\n");
+    out.push_str(&format!("  NAME {}\n", uri.repo));
+    out.push_str(&format!("  {repo_key} {}/{}\n", uri.owner, uri.repo));
+    if let Some(v) = &uri.version {
+        let key = if uri.version_separator == Some('@') {
+            "VERSION"
+        } else {
+            "GIT_TAG"
+        };
+        out.push_str(&format!("  {key} {v}\n"));
+    }
+    if !options.is_empty() {
+        out.push_str("  OPTIONS\n");
+        for (k, v) in options {
+            out.push_str(&format!("    \"{k} {v}\"\n"));
+        }
+    }
+    out.push(')');
+    out
+}
+
 fn iter_children(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     let mut walker = node.walk();
     let mut children = Vec::new();
@@ -374,6 +405,39 @@ mod tests {
         let mut f = CMakeFile::from_source(src.to_string(), PathBuf::from("test")).unwrap();
         let ins = f.cpm_insertion();
         assert!(matches!(ins, CpmInsertion::Eof(o) if o == src.len()));
+    }
+
+    #[test]
+    fn render_uri_to_keyword_form() {
+        let mut f = CMakeFile::from_source(
+            "CPMAddPackage(\"gh:fmtlib/fmt#12.1.0\")\n".to_string(),
+            PathBuf::from("test"),
+        )
+        .unwrap();
+        let calls = f.cpm_calls();
+        let uri = calls[0].uri.as_ref().unwrap();
+        let rendered = render_uri_as_keyword(
+            uri,
+            &[("FMT_INSTALL".to_string(), "ON".to_string())],
+        );
+        assert_eq!(
+            rendered,
+            "CPMAddPackage(\n  NAME fmt\n  GITHUB_REPOSITORY fmtlib/fmt\n  GIT_TAG 12.1.0\n  OPTIONS\n    \"FMT_INSTALL ON\"\n)"
+        );
+    }
+
+    #[test]
+    fn render_uri_with_at_uses_version_keyword() {
+        let mut f = CMakeFile::from_source(
+            "CPMAddPackage(\"gh:catchorg/Catch2@v3.5.4\")\n".to_string(),
+            PathBuf::from("test"),
+        )
+        .unwrap();
+        let calls = f.cpm_calls();
+        let uri = calls[0].uri.as_ref().unwrap();
+        let rendered = render_uri_as_keyword(uri, &[]);
+        assert!(rendered.contains("VERSION v3.5.4"));
+        assert!(!rendered.contains("OPTIONS"));
     }
 
     #[test]

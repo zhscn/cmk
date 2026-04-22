@@ -141,6 +141,12 @@ enum SubCommand {
         #[clap(short, long)]
         force: bool,
     },
+    /// Manage CPM dependencies in the project's CMakeLists.txt
+    #[clap(name = "pkg")]
+    Pkg {
+        #[clap(subcommand)]
+        cmd: PkgCmd,
+    },
     /// Lint source files with clang-tidy
     #[clap(name = "lint", visible_alias = "l")]
     Lint {
@@ -175,6 +181,22 @@ enum SubCommand {
         /// Print verbose output
         #[clap(short, long)]
         verbose: bool,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum PkgCmd {
+    /// Set OPTIONS for a CPM dependency in the root CMakeLists.txt.
+    /// Rewrites the matching `CPMAddPackage` URI call into the keyword form
+    /// with the requested OPTIONS appended.
+    #[clap(name = "option")]
+    Option {
+        /// Package: repo basename (e.g. `fmt`), `owner/repo`, or alias from
+        /// the global package index.
+        name: String,
+        /// One or more `KEY=VALUE` option pairs.
+        #[clap(required = true)]
+        opts: Vec<String>,
     },
 }
 
@@ -216,6 +238,9 @@ async fn main() -> Result<()> {
                 Ok(())
             }
             SubCommand::Init { force } => cmd::exec_init(force).await,
+            SubCommand::Pkg { cmd } => match cmd {
+                PkgCmd::Option { name, opts } => cmd::exec_pkg_option(name, opts).await,
+            },
             SubCommand::Lint {
                 build,
                 file,

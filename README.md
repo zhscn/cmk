@@ -12,6 +12,7 @@ Package management (CPM):
 - `cmk add owner/repo`: Track a GitHub release in the global package index (`~/.config/cmk/pkg.json`). Pass `-p/--project` to also insert `CPMAddPackage("gh:owner/repo#vTAG")` into the root `CMakeLists.txt` (skipped if the package is already present).
 - `cmk get name`: Print the cached release for a tracked package (alias or full `owner/repo`).
 - `cmk update`: Refresh the latest release tags for all tracked packages and the bundled CPM bootstrap script. Pass `-p/--project` to also scan the root `CMakeLists.txt` for `CPMAddPackage("gh|gl|bb:owner/repo#tag")` URIs, query GitHub for each, print a diff, and (with confirmation, or `-y` to skip) splice in the new versions while preserving comments and formatting.
+- `cmk pkg option <name> KEY=VALUE...`: Rewrite a URI-form `CPMAddPackage("gh:owner/repo#tag")` into the equivalent keyword form (`NAME` + `GITHUB_REPOSITORY` + `GIT_TAG`) with `OPTIONS "KEY VALUE"` appended. `<name>` matches a repo basename (`fmt`), full `owner/repo`, or a global-index alias. Example: `cmk pkg option fmt FMT_INSTALL=ON`.
 
 Requirement:
 1. Only works with CMake projects with `Ninja` as the generator(`Ninja Multi-Config` is not supported).
