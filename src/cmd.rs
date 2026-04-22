@@ -8,8 +8,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use cmk::{
-    CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target, completing_read,
-    default::load_template, get_project_root,
+    CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target, cmake_ast::CMakeFile,
+    completing_read, confirm, default::load_template, get_project_root,
 };
 use tokio::process::Command;
 
@@ -53,7 +53,7 @@ pub(crate) async fn exec_get(name: String) -> Result<()> {
 
 // ========== Update command ==========
 
-pub(crate) async fn exec_update() -> Result<()> {
+pub(crate) async fn exec_update(project: bool, yes: bool) -> Result<()> {
     let home = std::env::var("HOME")?;
     let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
     let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
@@ -66,6 +66,98 @@ pub(crate) async fn exec_update() -> Result<()> {
         println!("CPM: {} -> {}", old_cpm.version, new_cpm.version);
         new_cpm.save(cpm_info_path)?;
     }
+    if project {
+        update_project_cmakelists(yes).await?;
+    }
+    Ok(())
+}
+
+async fn update_project_cmakelists(yes: bool) -> Result<()> {
+    use std::ops::Range;
+
+    let project_root = get_project_root().await?;
+    let path = project_root.join("CMakeLists.txt");
+    if !path.exists() {
+        return Err(anyhow!("CMakeLists.txt not found at {}", path.display()));
+    }
+
+    let mut cmake = CMakeFile::parse_path(&path)?;
+
+    struct Pinned {
+        owner: String,
+        repo: String,
+        current: String,
+        range: Range<usize>,
+    }
+
+    let pinned: Vec<Pinned> = cmake
+        .cpm_calls()
+        .into_iter()
+        .filter_map(|c| {
+            let u = c.uri?;
+            let v = u.version?;
+            let r = u.version_range?;
+            Some(Pinned {
+                owner: u.owner,
+                repo: u.repo,
+                current: v,
+                range: r,
+            })
+        })
+        .collect();
+
+    if pinned.is_empty() {
+        println!("No pinned CPMAddPackage URIs found in {}.", path.display());
+        return Ok(());
+    }
+
+    println!("Checking {} package(s)...", pinned.len());
+    let octo = octocrab::instance();
+    let queries = pinned.iter().map(|p| {
+        let octo = octo.clone();
+        let owner = p.owner.clone();
+        let repo = p.repo.clone();
+        async move {
+            let release = octo
+                .repos(&owner, &repo)
+                .releases()
+                .get_latest()
+                .await
+                .with_context(|| format!("query latest for {owner}/{repo}"))?;
+            anyhow::Ok(release.tag_name)
+        }
+    });
+    let results = futures::future::join_all(queries).await;
+
+    let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+    for (p, latest) in pinned.iter().zip(results) {
+        let pkg = format!("{}/{}", p.owner, p.repo);
+        match latest {
+            Ok(latest) => {
+                if latest == p.current {
+                    continue;
+                }
+                println!("  {pkg}: {} -> {latest}", p.current);
+                edits.push((p.range.clone(), latest));
+            }
+            Err(e) => eprintln!("  {pkg}: {e:#}"),
+        }
+    }
+
+    if edits.is_empty() {
+        println!("Project CMakeLists.txt is up to date.");
+        return Ok(());
+    }
+
+    if !yes && !confirm("Apply these updates?").await? {
+        println!("Aborted.");
+        return Ok(());
+    }
+
+    let count = edits.len();
+    cmake.splice_many(edits);
+    cmake.save()?;
+    println!("Updated {count} package(s) in {}.", path.display());
     Ok(())
 }
 

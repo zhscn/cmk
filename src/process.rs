@@ -1,7 +1,18 @@
 use anyhow::Result;
-use std::{cmp::min, process::Stdio};
-use tokio::io::AsyncWriteExt;
+use std::{cmp::min, io::Write, process::Stdio};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+
+/// Prompt the user for a yes/no answer. Empty input → yes.
+pub async fn confirm(prompt: &str) -> Result<bool> {
+    print!("{prompt} [Y/n] ");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    let mut reader = BufReader::new(tokio::io::stdin());
+    reader.read_line(&mut line).await?;
+    let trimmed = line.trim().to_lowercase();
+    Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
+}
 
 pub(crate) async fn wait_with_cancel(
     child: &mut tokio::process::Child,

@@ -33,7 +33,15 @@ enum SubCommand {
     },
     /// Update the package index
     #[clap(name = "update", visible_alias = "u")]
-    Update,
+    Update {
+        /// Also scan the project's root CMakeLists.txt for CPMAddPackage calls
+        /// and bump pinned versions to the latest tag found on GitHub.
+        #[clap(short, long)]
+        project: bool,
+        /// Skip the confirmation prompt before applying project edits
+        #[clap(short, long)]
+        yes: bool,
+    },
     /// Get the cached release of a package in the package index
     #[clap(name = "get", visible_alias = "g")]
     Get {
@@ -173,7 +181,7 @@ async fn main() -> Result<()> {
     if let Some(command) = cli.command {
         match command {
             SubCommand::Add { name } => cmd::exec_add(name).await,
-            SubCommand::Update => cmd::exec_update().await,
+            SubCommand::Update { project, yes } => cmd::exec_update(project, yes).await,
             SubCommand::Get { name } => cmd::exec_get(name).await,
             SubCommand::New { name, template } => cmd::exec_new(name, template).await,
             SubCommand::Run {
