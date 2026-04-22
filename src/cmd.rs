@@ -486,8 +486,40 @@ pub(crate) async fn exec_fmt(
 
 // ========== Lint command ==========
 
+fn read_compile_db_files(cdb_path: &Path) -> Result<Vec<PathBuf>> {
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        file: String,
+        #[serde(default)]
+        directory: Option<String>,
+    }
+    let content = std::fs::read_to_string(cdb_path)
+        .with_context(|| format!("Failed to read {}", cdb_path.display()))?;
+    let entries: Vec<Entry> = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse {}", cdb_path.display()))?;
+    let mut files: Vec<PathBuf> = entries
+        .into_iter()
+        .map(|e| {
+            let p = PathBuf::from(&e.file);
+            if p.is_absolute() {
+                p
+            } else if let Some(dir) = e.directory {
+                PathBuf::from(dir).join(p)
+            } else {
+                p
+            }
+        })
+        .collect();
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn exec_lint(
     build: Option<String>,
+    file: Option<String>,
+    interactive: bool,
     all: bool,
     staged: bool,
     unstaged: bool,
@@ -522,9 +554,51 @@ pub(crate) async fn exec_lint(
     }
 
     let lint_config = LintConfig::load(&project_root)?;
-    let selection = FileSelection::from_flags(all, staged, unstaged);
-    let files =
-        collect_source_files(&project_root, selection, &lint_config.ignore, verbose).await?;
+
+    let files: Vec<PathBuf> = if let Some(name) = file {
+        let p = PathBuf::from(&name);
+        let abs = if p.is_absolute() {
+            p
+        } else {
+            std::env::current_dir()?.join(p)
+        };
+        if !abs.exists() {
+            return Err(anyhow!("File not found: {}", abs.display()));
+        }
+        vec![abs]
+    } else if interactive {
+        let candidates = read_compile_db_files(&cdb)?;
+        if candidates.is_empty() {
+            return Err(anyhow!("No source files in {}", cdb.display()));
+        }
+        let display: Vec<String> = candidates
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&project_root)
+                    .unwrap_or(p)
+                    .display()
+                    .to_string()
+            })
+            .collect();
+        let picked = completing_read(&display).await?;
+        if picked.is_empty() {
+            return Err(anyhow!("No source file selected"));
+        }
+        let chosen = candidates
+            .into_iter()
+            .find(|p| {
+                p.strip_prefix(&project_root)
+                    .unwrap_or(p)
+                    .display()
+                    .to_string()
+                    == picked
+            })
+            .with_context(|| format!("Selected file '{picked}' not found in compile db"))?;
+        vec![chosen]
+    } else {
+        let selection = FileSelection::from_flags(all, staged, unstaged);
+        collect_source_files(&project_root, selection, &lint_config.ignore, verbose).await?
+    };
 
     if files.is_empty() {
         println!("No source files to lint.");

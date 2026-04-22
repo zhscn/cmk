@@ -117,6 +117,13 @@ enum SubCommand {
         /// The path to the build directory relative to the project root
         #[clap(short, long)]
         build: Option<String>,
+        /// Lint a single source file (path relative to PWD or absolute).
+        /// Skips git-based selection.
+        #[clap(conflicts_with_all = ["all", "staged", "unstaged", "interactive"])]
+        file: Option<String>,
+        /// Pick a single source file from compile_commands.json interactively
+        #[clap(short, long, conflicts_with_all = ["all", "staged", "unstaged"])]
+        interactive: bool,
         /// Lint all tracked source files
         #[clap(short, long, conflicts_with_all = ["staged", "unstaged"])]
         all: bool,
@@ -170,6 +177,8 @@ async fn main() -> Result<()> {
             } => cmd::exec_fmt(all, staged, unstaged, dry_run, verbose).await,
             SubCommand::Lint {
                 build,
+                file,
+                interactive,
                 all,
                 staged,
                 unstaged,
@@ -179,6 +188,8 @@ async fn main() -> Result<()> {
             } => {
                 cmd::exec_lint(
                     build,
+                    file,
+                    interactive,
                     all,
                     staged,
                     unstaged,
