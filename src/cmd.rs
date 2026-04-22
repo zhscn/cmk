@@ -236,6 +236,45 @@ pub(crate) async fn exec_refresh(build: Option<String>) -> Result<()> {
     Ok(())
 }
 
+// ========== Init command ==========
+
+const CMK_TOML_TEMPLATE: &str = r#"# cmk project configuration. See https://github.com/zhscn/cmk for the full schema.
+
+# [build]
+# # Used when multiple build dirs exist and PWD isn't inside one.
+# default = "build/debug"
+
+# [vars]
+# DEPS_DIR = "${PROJECT_ROOT}/.deps"
+# DEPS_INSTALL = "${DEPS_DIR}/install"
+
+# [env]
+# PATH = { prepend = ["${DEPS_INSTALL}/bin"] }
+
+[fmt]
+ignore = ["third_party/**", "build/**"]
+
+[lint]
+ignore = ["third_party/**", "build/**"]
+# warnings_as_errors = false
+# header_filter = "^(src|include)/"
+# extra_args = ["-quiet"]
+"#;
+
+pub(crate) async fn exec_init(force: bool) -> Result<()> {
+    let project_root = get_project_root().await?;
+    let path = project_root.join(".cmk.toml");
+    if path.exists() && !force {
+        return Err(anyhow!(
+            "{} already exists (pass --force to overwrite)",
+            path.display()
+        ));
+    }
+    tokio::fs::write(&path, CMK_TOML_TEMPLATE).await?;
+    println!("Wrote {}", path.display());
+    Ok(())
+}
+
 // ========== Source file selection (shared by fmt/lint) ==========
 
 fn is_c_or_cpp(path: &Path) -> bool {

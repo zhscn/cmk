@@ -122,6 +122,13 @@ enum SubCommand {
         /// The shell to generate completions for
         shell: Shell,
     },
+    /// Scaffold a `.cmk.toml` in the project root
+    #[clap(name = "init")]
+    Init {
+        /// Overwrite an existing `.cmk.toml`
+        #[clap(short, long)]
+        force: bool,
+    },
     /// Lint source files with clang-tidy
     #[clap(name = "lint", visible_alias = "l")]
     Lint {
@@ -193,6 +200,7 @@ async fn main() -> Result<()> {
                 clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
                 Ok(())
             }
+            SubCommand::Init { force } => cmd::exec_init(force).await,
             SubCommand::Lint {
                 build,
                 file,
