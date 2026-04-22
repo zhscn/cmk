@@ -157,6 +157,9 @@ enum SubCommand {
         /// Treat warnings as errors (overrides .cmk.toml)
         #[clap(short = 'W', long)]
         warnings_as_errors: bool,
+        /// Bypass the per-file result cache
+        #[clap(long)]
+        no_cache: bool,
         /// Print verbose output
         #[clap(short, long)]
         verbose: bool,
@@ -210,6 +213,7 @@ async fn main() -> Result<()> {
                 unstaged,
                 fix,
                 warnings_as_errors,
+                no_cache,
                 verbose,
             } => {
                 cmd::exec_lint(
@@ -221,6 +225,7 @@ async fn main() -> Result<()> {
                     unstaged,
                     fix,
                     warnings_as_errors,
+                    no_cache,
                     verbose,
                 )
                 .await

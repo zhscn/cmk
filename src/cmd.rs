@@ -579,6 +579,96 @@ fn read_compile_db_files(cdb_path: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+const LINT_CACHE_VERSION: &str = "v1";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LintCacheEntry {
+    signature: String,
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+    warnings: usize,
+    errors: usize,
+}
+
+fn cache_key_for(source: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(source.to_string_lossy().as_bytes());
+    format!("{:x}", h.finalize())
+}
+
+fn collect_clang_tidy_configs(project_root: &Path, source: &Path) -> Vec<PathBuf> {
+    let start = source.parent().unwrap_or(source);
+    let mut configs = Vec::new();
+    let mut dir = start.to_path_buf();
+    loop {
+        let cfg = dir.join(".clang-tidy");
+        if cfg.exists() {
+            configs.push(cfg);
+        }
+        if dir == project_root {
+            break;
+        }
+        match dir.parent() {
+            Some(p) => dir = p.to_path_buf(),
+            None => break,
+        }
+    }
+    configs
+}
+
+fn compute_signature(
+    source: &Path,
+    cdb_path: &Path,
+    base_args: &[String],
+    project_root: &Path,
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(LINT_CACHE_VERSION.as_bytes());
+    h.update([0u8]);
+    h.update(source.to_string_lossy().as_bytes());
+    h.update([0u8]);
+
+    let src_meta = std::fs::metadata(source)
+        .with_context(|| format!("stat {}", source.display()))?;
+    h.update(src_meta.len().to_le_bytes());
+    let src_mtime = src_meta
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    h.update(src_mtime.as_nanos().to_le_bytes());
+
+    let cdb_meta = std::fs::metadata(cdb_path)?;
+    let cdb_mtime = cdb_meta
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    h.update(cdb_mtime.as_nanos().to_le_bytes());
+
+    for arg in base_args {
+        h.update(arg.as_bytes());
+        h.update([0u8]);
+    }
+
+    for cfg in collect_clang_tidy_configs(project_root, source) {
+        h.update(cfg.to_string_lossy().as_bytes());
+        if let Ok(meta) = std::fs::metadata(&cfg)
+            && let Ok(mt) = meta.modified()
+        {
+            h.update(
+                mt.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+                    .to_le_bytes(),
+            );
+        }
+    }
+
+    Ok(format!("{:x}", h.finalize()))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn exec_lint(
     build: Option<String>,
@@ -589,6 +679,7 @@ pub(crate) async fn exec_lint(
     unstaged: bool,
     fix: bool,
     warnings_as_errors: bool,
+    no_cache: bool,
     verbose: bool,
 ) -> Result<()> {
     let project = CMakeProject::new().await?;
@@ -667,6 +758,13 @@ pub(crate) async fn exec_lint(
     let warnings_as_errors = warnings_as_errors || lint_config.warnings_as_errors;
     let header_filter = lint_config.header_filter.clone();
     let extra_args = Arc::new(lint_config.extra_args);
+    let cache_enabled = !no_cache && !fix;
+    let cache_dir = build_dir.join(".cmk-lint-cache").join(LINT_CACHE_VERSION);
+    if cache_enabled {
+        std::fs::create_dir_all(&cache_dir)?;
+    }
+    let cache_dir = Arc::new(cache_dir);
+    let cdb = Arc::new(cdb);
     let build_dir = Arc::new(build_dir);
     let project_root = Arc::new(project_root);
     let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
@@ -709,6 +807,7 @@ pub(crate) async fn exec_lint(
     }
 
     let failed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let cache_hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let reports = Arc::new(tokio::sync::Mutex::new(Vec::<FileReport>::new()));
     let stdout_lock = Arc::new(tokio::sync::Mutex::new(()));
     let mut handles = Vec::new();
@@ -717,45 +816,100 @@ pub(crate) async fn exec_lint(
         let chunk: Vec<PathBuf> = chunk.to_vec();
         let project_root = Arc::clone(&project_root);
         let failed = Arc::clone(&failed);
+        let cache_hits = Arc::clone(&cache_hits);
         let reports = Arc::clone(&reports);
         let stdout_lock = Arc::clone(&stdout_lock);
+        let cache_dir = Arc::clone(&cache_dir);
+        let cdb = Arc::clone(&cdb);
         let base_args = build_args();
         handles.push(tokio::spawn(async move {
             for file in &chunk {
-                let mut cmd = Command::new("clang-tidy");
-                cmd.args(&base_args)
-                    .arg(file)
-                    .current_dir(project_root.as_ref());
-                let output = match cmd.output().await {
-                    Ok(o) => o,
-                    Err(e) => {
-                        failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let _g = stdout_lock.lock().await;
-                        eprintln!("clang-tidy failed to start for {}: {e}", file.display());
-                        continue;
-                    }
+                let signature = if cache_enabled {
+                    compute_signature(file, &cdb, &base_args, &project_root).ok()
+                } else {
+                    None
                 };
-                let success = output.status.success();
+                let cache_path = signature
+                    .as_ref()
+                    .map(|_| cache_dir.join(format!("{}.json", cache_key_for(file))));
+
+                let cached: Option<LintCacheEntry> =
+                    cache_path.as_ref().and_then(|p| {
+                        std::fs::read(p)
+                            .ok()
+                            .and_then(|b| serde_json::from_slice(&b).ok())
+                    });
+
+                let (stdout_s, stderr_s, success, warnings, errors, from_cache) =
+                    if let (Some(sig), Some(entry)) = (signature.as_ref(), cached.as_ref())
+                        && &entry.signature == sig
+                    {
+                        cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        (
+                            entry.stdout.clone(),
+                            entry.stderr.clone(),
+                            entry.exit_code == 0,
+                            entry.warnings,
+                            entry.errors,
+                            true,
+                        )
+                    } else {
+                        let mut cmd = Command::new("clang-tidy");
+                        cmd.args(&base_args)
+                            .arg(file)
+                            .current_dir(project_root.as_ref());
+                        let output = match cmd.output().await {
+                            Ok(o) => o,
+                            Err(e) => {
+                                failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let _g = stdout_lock.lock().await;
+                                eprintln!(
+                                    "clang-tidy failed to start for {}: {e}",
+                                    file.display()
+                                );
+                                continue;
+                            }
+                        };
+                        let success = output.status.success();
+                        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                        let warnings =
+                            count_diag(&stdout, "warning:") + count_diag(&stderr, "warning:");
+                        let errors =
+                            count_diag(&stdout, "error:") + count_diag(&stderr, "error:");
+                        if let (Some(sig), Some(p)) = (signature.as_ref(), cache_path.as_ref()) {
+                            let entry = LintCacheEntry {
+                                signature: sig.clone(),
+                                exit_code: output.status.code().unwrap_or(-1),
+                                stdout: stdout.clone(),
+                                stderr: stderr.clone(),
+                                warnings,
+                                errors,
+                            };
+                            if let Ok(serialized) = serde_json::to_vec(&entry) {
+                                let _ = std::fs::write(p, serialized);
+                            }
+                        }
+                        (stdout, stderr, success, warnings, errors, false)
+                    };
+
                 if !success {
                     failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let warnings = count_diag(&stdout, "warning:") + count_diag(&stderr, "warning:");
-                let errors = count_diag(&stdout, "error:") + count_diag(&stderr, "error:");
-                let has_output = !stdout.trim().is_empty() || !stderr.trim().is_empty();
+                let has_output = !stdout_s.trim().is_empty() || !stderr_s.trim().is_empty();
                 if has_output || !success {
                     let _g = stdout_lock.lock().await;
+                    let tag = if from_cache { " (cached)" } else { "" };
                     if use_color {
-                        println!("\x1b[1;36m── {} ──\x1b[0m", file.display());
+                        println!("\x1b[1;36m── {}{tag} ──\x1b[0m", file.display());
                     } else {
-                        println!("── {} ──", file.display());
+                        println!("── {}{tag} ──", file.display());
                     }
-                    if !stdout.is_empty() {
-                        print!("{stdout}");
+                    if !stdout_s.is_empty() {
+                        print!("{stdout_s}");
                     }
-                    if !stderr.is_empty() {
-                        eprint!("{stderr}");
+                    if !stderr_s.is_empty() {
+                        eprint!("{stderr_s}");
                     }
                 }
                 if warnings > 0 || errors > 0 || !success {
@@ -803,8 +957,14 @@ pub(crate) async fn exec_lint(
     if failed > 0 {
         return Err(anyhow!("{failed}/{total} file(s) failed clang-tidy"));
     }
+    let hits = cache_hits.load(std::sync::atomic::Ordering::Relaxed);
+    let cache_note = if cache_enabled {
+        format!(" ({hits} cached)")
+    } else {
+        String::new()
+    };
     println!(
-        "Linted {total} file(s), {} with diagnostics.",
+        "Linted {total} file(s){cache_note}, {} with diagnostics.",
         reports.len()
     );
     Ok(())
