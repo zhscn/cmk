@@ -630,6 +630,7 @@ pub(crate) async fn exec_lint(
     let extra_args = Arc::new(lint_config.extra_args);
     let build_dir = Arc::new(build_dir);
     let project_root = Arc::new(project_root);
+    let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
 
     let build_args = move || -> Vec<String> {
         let mut args = vec!["-p".to_string(), build_dir.display().to_string()];
@@ -641,6 +642,9 @@ pub(crate) async fn exec_lint(
         }
         if fix {
             args.push("--fix".to_string());
+        }
+        if use_color {
+            args.push("--use-color".to_string());
         }
         for a in extra_args.iter() {
             args.push(a.clone());
@@ -658,7 +662,15 @@ pub(crate) async fn exec_lint(
     };
     let chunk_size = total.div_ceil(jobs);
 
+    #[derive(Clone)]
+    struct FileReport {
+        file: PathBuf,
+        warnings: usize,
+        errors: usize,
+    }
+
     let failed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let reports = Arc::new(tokio::sync::Mutex::new(Vec::<FileReport>::new()));
     let stdout_lock = Arc::new(tokio::sync::Mutex::new(()));
     let mut handles = Vec::new();
 
@@ -666,6 +678,7 @@ pub(crate) async fn exec_lint(
         let chunk: Vec<PathBuf> = chunk.to_vec();
         let project_root = Arc::clone(&project_root);
         let failed = Arc::clone(&failed);
+        let reports = Arc::clone(&reports);
         let stdout_lock = Arc::clone(&stdout_lock);
         let base_args = build_args();
         handles.push(tokio::spawn(async move {
@@ -689,16 +702,29 @@ pub(crate) async fn exec_lint(
                 }
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
+                let warnings = count_diag(&stdout, "warning:") + count_diag(&stderr, "warning:");
+                let errors = count_diag(&stdout, "error:") + count_diag(&stderr, "error:");
                 let has_output = !stdout.trim().is_empty() || !stderr.trim().is_empty();
                 if has_output || !success {
                     let _g = stdout_lock.lock().await;
-                    println!("--- {} ---", file.display());
+                    if use_color {
+                        println!("\x1b[1;36m── {} ──\x1b[0m", file.display());
+                    } else {
+                        println!("── {} ──", file.display());
+                    }
                     if !stdout.is_empty() {
                         print!("{stdout}");
                     }
                     if !stderr.is_empty() {
                         eprint!("{stderr}");
                     }
+                }
+                if warnings > 0 || errors > 0 || !success {
+                    reports.lock().await.push(FileReport {
+                        file: file.clone(),
+                        warnings,
+                        errors,
+                    });
                 }
             }
         }));
@@ -709,9 +735,42 @@ pub(crate) async fn exec_lint(
     }
 
     let failed = failed.load(std::sync::atomic::Ordering::Relaxed);
+    let reports = Arc::into_inner(reports)
+        .expect("all tasks joined")
+        .into_inner();
+
+    if !reports.is_empty() {
+        let bold = if use_color { "\x1b[1m" } else { "" };
+        let yellow = if use_color { "\x1b[33m" } else { "" };
+        let red = if use_color { "\x1b[31m" } else { "" };
+        let reset = if use_color { "\x1b[0m" } else { "" };
+        println!("\n{bold}Lint summary:{reset}");
+        for r in &reports {
+            let path = r.file.display();
+            let mut parts = Vec::new();
+            if r.warnings > 0 {
+                parts.push(format!("{yellow}{} warning(s){reset}", r.warnings));
+            }
+            if r.errors > 0 {
+                parts.push(format!("{red}{} error(s){reset}", r.errors));
+            }
+            if parts.is_empty() {
+                parts.push(format!("{red}failed{reset}"));
+            }
+            println!("  {path}: {}", parts.join(", "));
+        }
+    }
+
     if failed > 0 {
         return Err(anyhow!("{failed}/{total} file(s) failed clang-tidy"));
     }
-    println!("Linted {total} file(s).");
+    println!(
+        "Linted {total} file(s), {} with diagnostics.",
+        reports.len()
+    );
     Ok(())
+}
+
+fn count_diag(text: &str, marker: &str) -> usize {
+    text.lines().filter(|l| l.contains(marker)).count()
 }
