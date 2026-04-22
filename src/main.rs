@@ -96,6 +96,10 @@ enum SubCommand {
     /// Format source files with clang-format
     #[clap(name = "fmt", visible_alias = "f")]
     Fmt {
+        /// Format a single source file (path relative to PWD or absolute).
+        /// Skips git-based selection.
+        #[clap(conflicts_with_all = ["all", "staged", "unstaged"])]
+        file: Option<String>,
         /// Format all tracked source files
         #[clap(short, long, conflicts_with_all = ["staged", "unstaged"])]
         all: bool,
@@ -176,12 +180,13 @@ async fn main() -> Result<()> {
             SubCommand::BuildTU { name, build } => cmd::exec_build_tu(name, build).await,
             SubCommand::Refresh { build } => cmd::exec_refresh(build).await,
             SubCommand::Fmt {
+                file,
                 all,
                 staged,
                 unstaged,
                 dry_run,
                 verbose,
-            } => cmd::exec_fmt(all, staged, unstaged, dry_run, verbose).await,
+            } => cmd::exec_fmt(file, all, staged, unstaged, dry_run, verbose).await,
             SubCommand::Completions { shell } => {
                 let mut cmd = Cli::command();
                 let name = cmd.get_name().to_string();

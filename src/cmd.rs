@@ -285,6 +285,19 @@ async fn run_git(args: &[&str], project_root: &Path) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+fn resolve_single_file(name: &str) -> Result<PathBuf> {
+    let p = PathBuf::from(name);
+    let abs = if p.is_absolute() {
+        p
+    } else {
+        std::env::current_dir()?.join(p)
+    };
+    if !abs.exists() {
+        return Err(anyhow!("File not found: {}", abs.display()));
+    }
+    Ok(abs)
+}
+
 async fn collect_source_files(
     project_root: &Path,
     selection: FileSelection,
@@ -358,6 +371,7 @@ async fn collect_source_files(
 // ========== Fmt command ==========
 
 pub(crate) async fn exec_fmt(
+    file: Option<String>,
     all: bool,
     staged: bool,
     unstaged: bool,
@@ -366,9 +380,12 @@ pub(crate) async fn exec_fmt(
 ) -> Result<()> {
     let project_root = get_project_root().await?;
     let fmt_config = FmtConfig::load(&project_root)?;
-    let selection = FileSelection::from_flags(all, staged, unstaged);
-    let files =
-        collect_source_files(&project_root, selection, &fmt_config.ignore, verbose).await?;
+    let files = if let Some(name) = file {
+        vec![resolve_single_file(&name)?]
+    } else {
+        let selection = FileSelection::from_flags(all, staged, unstaged);
+        collect_source_files(&project_root, selection, &fmt_config.ignore, verbose).await?
+    };
 
     if files.is_empty() {
         println!("No source files to format.");
@@ -556,16 +573,7 @@ pub(crate) async fn exec_lint(
     let lint_config = LintConfig::load(&project_root)?;
 
     let files: Vec<PathBuf> = if let Some(name) = file {
-        let p = PathBuf::from(&name);
-        let abs = if p.is_absolute() {
-            p
-        } else {
-            std::env::current_dir()?.join(p)
-        };
-        if !abs.exists() {
-            return Err(anyhow!("File not found: {}", abs.display()));
-        }
-        vec![abs]
+        vec![resolve_single_file(&name)?]
     } else if interactive {
         let candidates = read_compile_db_files(&cdb)?;
         if candidates.is_empty() {

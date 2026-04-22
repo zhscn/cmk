@@ -3,7 +3,7 @@ The missing tools in CMake:
 2. `cmk run`: Builds and runs a specified executable target, getting rid of the build directory and binary path.
 3. `cmk build`: Automatically discovers the project's build directory and invokes the build process from any subdirectory.
 4. `cmk build-tu`: Speeds up iteration by compiling a single source file (translation unit) on its own.
-5. `cmk fmt`: Formats C/C++ source files with `clang-format`. Supports `--all` (all tracked files), `--staged`, and `--unstaged` flags. Files matching `[fmt] ignore` glob patterns in `.cmk.toml` are skipped.
+5. `cmk fmt`: Formats C/C++ source files with `clang-format`. Pass a positional source path to format a single file (`cmk fmt src/foo.cpp`); otherwise selects via `--all` (all tracked files), `--staged`, or `--unstaged`. Files matching `[fmt] ignore` glob patterns in `.cmk.toml` are skipped.
 6. `cmk completions <shell>`: Print shell completions to stdout. Supports `bash`, `zsh`, `fish`, `powershell`, `elvish`. Example: `cmk completions zsh > ~/.zfunc/_cmk`.
 7. `cmk lint`: Lints C/C++ source files with `clang-tidy` against the build directory's `compile_commands.json`. Same `--all`/`--staged`/`--unstaged` selection as `fmt`, plus `--fix` (serial), `-W/--warnings-as-errors`, and `-b/--build` to pick the build dir. To target a single TU, pass a positional source path (`cmk lint src/foo.cpp`) or `-i/--interactive` to pick from `compile_commands.json` via fzf. Honours `[lint]` in `.cmk.toml` (`ignore`, `warnings_as_errors`, `header_filter`, `extra_args`).
 
