@@ -1,5 +1,6 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::Shell;
 
 mod cmd;
 
@@ -111,6 +112,12 @@ enum SubCommand {
         #[clap(short, long)]
         verbose: bool,
     },
+    /// Generate shell completions to stdout
+    #[clap(name = "completions")]
+    Completions {
+        /// The shell to generate completions for
+        shell: Shell,
+    },
     /// Lint source files with clang-tidy
     #[clap(name = "lint", visible_alias = "l")]
     Lint {
@@ -175,6 +182,12 @@ async fn main() -> Result<()> {
                 dry_run,
                 verbose,
             } => cmd::exec_fmt(all, staged, unstaged, dry_run, verbose).await,
+            SubCommand::Completions { shell } => {
+                let mut cmd = Cli::command();
+                let name = cmd.get_name().to_string();
+                clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+                Ok(())
+            }
             SubCommand::Lint {
                 build,
                 file,
