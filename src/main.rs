@@ -30,6 +30,10 @@ enum SubCommand {
     Add {
         /// The name of the package with the format of "owner/repo"
         name: String,
+        /// Also insert `CPMAddPackage("gh:owner/repo#vTAG")` into the root
+        /// CMakeLists.txt. Comments and formatting are preserved.
+        #[clap(short, long)]
+        project: bool,
     },
     /// Update the package index
     #[clap(name = "update", visible_alias = "u")]
@@ -180,7 +184,7 @@ async fn main() -> Result<()> {
 
     if let Some(command) = cli.command {
         match command {
-            SubCommand::Add { name } => cmd::exec_add(name).await,
+            SubCommand::Add { name, project } => cmd::exec_add(name, project).await,
             SubCommand::Update { project, yes } => cmd::exec_update(project, yes).await,
             SubCommand::Get { name } => cmd::exec_get(name).await,
             SubCommand::New { name, template } => cmd::exec_new(name, template).await,

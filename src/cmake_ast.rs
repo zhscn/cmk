@@ -15,6 +15,28 @@ pub struct CMakeFile {
     dirty: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum CpmInsertion {
+    /// Insert immediately after the last `CPMAddPackage(...)` call's `)`.
+    /// Caller should prepend `"\n"` to put the new call on its own line.
+    AfterLastCpm(usize),
+    /// Insert immediately before the first `add_executable`/`add_library`.
+    /// Caller should append `"\n\n"` to leave a blank line of separation.
+    BeforeFirstTarget(usize),
+    /// File contains neither anchor; insert at EOF.
+    /// Caller should append `"\n"` and prepend `"\n"` if file lacks a
+    /// trailing newline.
+    Eof(usize),
+}
+
+impl CpmInsertion {
+    pub fn offset(self) -> usize {
+        match self {
+            Self::AfterLastCpm(o) | Self::BeforeFirstTarget(o) | Self::Eof(o) => o,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CpmCall {
     /// Byte range of the entire `CPMAddPackage(...)` invocation, including
@@ -126,12 +148,10 @@ impl CMakeFile {
         self.dirty = true;
     }
 
-    /// Find a sensible insertion byte offset for a new top-level command.
+    /// Find a sensible insertion point for a new top-level command.
     /// Strategy: after the last `CPMAddPackage` call, otherwise just before
     /// the first `add_executable`/`add_library`, otherwise end of file.
-    /// Returns the insertion offset (callers prepend/append their own
-    /// newline as appropriate).
-    pub fn cpm_insertion_offset(&mut self) -> usize {
+    pub fn cpm_insertion(&mut self) -> CpmInsertion {
         self.ensure_fresh();
         let root = self.tree.root_node();
         let src = self.source.as_bytes();
@@ -158,12 +178,12 @@ impl CMakeFile {
             }
         }
         if let Some(end) = last_cpm_end {
-            return end;
+            return CpmInsertion::AfterLastCpm(end);
         }
         if let Some(start) = first_target_start {
-            return start;
+            return CpmInsertion::BeforeFirstTarget(start);
         }
-        self.source.len()
+        CpmInsertion::Eof(self.source.len())
     }
 
     pub fn save(&self) -> Result<()> {
@@ -335,24 +355,37 @@ mod tests {
     fn insertion_after_last_cpm() {
         let src = "CPMAddPackage(\"gh:a/b#1\")\n\nadd_executable(x src/x.cc)\n";
         let mut f = CMakeFile::from_source(src.to_string(), PathBuf::from("test")).unwrap();
-        let off = f.cpm_insertion_offset();
-        // end of `CPMAddPackage("gh:a/b#1")` is byte 25
-        assert_eq!(&src[..off], "CPMAddPackage(\"gh:a/b#1\")");
+        let ins = f.cpm_insertion();
+        assert!(matches!(ins, CpmInsertion::AfterLastCpm(_)));
+        assert_eq!(&src[..ins.offset()], "CPMAddPackage(\"gh:a/b#1\")");
     }
 
     #[test]
     fn insertion_before_first_target() {
         let src = "add_executable(x src/x.cc)\n";
         let mut f = CMakeFile::from_source(src.to_string(), PathBuf::from("test")).unwrap();
-        let off = f.cpm_insertion_offset();
-        assert_eq!(off, 0);
+        let ins = f.cpm_insertion();
+        assert!(matches!(ins, CpmInsertion::BeforeFirstTarget(0)));
     }
 
     #[test]
     fn insertion_falls_back_to_eof() {
         let src = "project(foo)\n";
         let mut f = CMakeFile::from_source(src.to_string(), PathBuf::from("test")).unwrap();
-        let off = f.cpm_insertion_offset();
-        assert_eq!(off, src.len());
+        let ins = f.cpm_insertion();
+        assert!(matches!(ins, CpmInsertion::Eof(o) if o == src.len()));
+    }
+
+    #[test]
+    fn splice_inserts_after_last_cpm_call() {
+        let src = "CPMAddPackage(\"gh:a/b#1\")\n\nadd_executable(x src/x.cc)\n";
+        let mut f = CMakeFile::from_source(src.to_string(), PathBuf::from("test")).unwrap();
+        let ins = f.cpm_insertion();
+        let off = ins.offset();
+        f.splice(off..off, "\nCPMAddPackage(\"gh:c/d#2\")");
+        assert_eq!(
+            f.source,
+            "CPMAddPackage(\"gh:a/b#1\")\nCPMAddPackage(\"gh:c/d#2\")\n\nadd_executable(x src/x.cc)\n"
+        );
     }
 }

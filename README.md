@@ -9,7 +9,7 @@ The missing tools in CMake:
 8. `cmk lint`: Lints C/C++ source files with `clang-tidy` against the build directory's `compile_commands.json`. Same `--all`/`--staged`/`--unstaged` selection as `fmt`, plus `--fix` (serial), `-W/--warnings-as-errors`, and `-b/--build` to pick the build dir. To target a single TU, pass a positional source path (`cmk lint src/foo.cpp`) or `-i/--interactive` to pick from `compile_commands.json` via fzf. Results are cached per-file under `<build>/.cmk-lint-cache/`; unchanged files (same source mtime/size, cdb mtime, `.clang-tidy` chain, and CLI args) replay the cached output without re-invoking clang-tidy. Pass `--no-cache` to bypass. Honours `[lint]` in `.cmk.toml` (`ignore`, `warnings_as_errors`, `header_filter`, `extra_args`).
 
 Package management (CPM):
-- `cmk add owner/repo`: Track a GitHub release in the global package index (`~/.config/cmk/pkg.json`).
+- `cmk add owner/repo`: Track a GitHub release in the global package index (`~/.config/cmk/pkg.json`). Pass `-p/--project` to also insert `CPMAddPackage("gh:owner/repo#vTAG")` into the root `CMakeLists.txt` (skipped if the package is already present).
 - `cmk get name`: Print the cached release for a tracked package (alias or full `owner/repo`).
 - `cmk update`: Refresh the latest release tags for all tracked packages and the bundled CPM bootstrap script. Pass `-p/--project` to also scan the root `CMakeLists.txt` for `CPMAddPackage("gh|gl|bb:owner/repo#tag")` URIs, query GitHub for each, print a diff, and (with confirmation, or `-y` to skip) splice in the new versions while preserving comments and formatting.
 

@@ -8,7 +8,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use cmk::{
-    CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target, cmake_ast::CMakeFile,
+    CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target,
+    cmake_ast::{CMakeFile, CpmInsertion},
     completing_read, confirm, default::load_template, get_project_root,
 };
 use tokio::process::Command;
@@ -27,7 +28,7 @@ pub(crate) fn get_default_jobs() -> usize {
 
 // ========== Add command ==========
 
-pub(crate) async fn exec_add(name: String) -> Result<()> {
+pub(crate) async fn exec_add(name: String, project: bool) -> Result<()> {
     let home = std::env::var("HOME")?;
     let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
     let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
@@ -35,7 +36,57 @@ pub(crate) async fn exec_add(name: String) -> Result<()> {
         .split_once('/')
         .with_context(|| "Invalid package name")?;
     index.add_repo(owner, repo).await?;
+    let tag = index.get_release(&format!("{owner}/{repo}"))?.to_string();
     index.save(&pkg_info_path)?;
+
+    if project {
+        insert_cpm_into_cmakelists(owner, repo, &tag).await?;
+    }
+    Ok(())
+}
+
+async fn insert_cpm_into_cmakelists(owner: &str, repo: &str, tag: &str) -> Result<()> {
+    let project_root = get_project_root().await?;
+    let path = project_root.join("CMakeLists.txt");
+    if !path.exists() {
+        return Err(anyhow!("CMakeLists.txt not found at {}", path.display()));
+    }
+
+    let mut cmake = CMakeFile::parse_path(&path)?;
+
+    let already_present = cmake.cpm_calls().iter().any(|c| {
+        c.uri.as_ref().is_some_and(|u| {
+            u.source == "gh"
+                && u.owner.eq_ignore_ascii_case(owner)
+                && u.repo.eq_ignore_ascii_case(repo)
+        })
+    });
+    if already_present {
+        println!(
+            "{owner}/{repo} is already present in {}; skipping insert.",
+            path.display()
+        );
+        return Ok(());
+    }
+
+    let new_call = format!("CPMAddPackage(\"gh:{owner}/{repo}#{tag}\")");
+    let insertion = cmake.cpm_insertion();
+    let offset = insertion.offset();
+    let insert_text = match insertion {
+        CpmInsertion::AfterLastCpm(_) => format!("\n{new_call}"),
+        CpmInsertion::BeforeFirstTarget(_) => format!("{new_call}\n\n"),
+        CpmInsertion::Eof(_) => {
+            if cmake.source.ends_with('\n') {
+                format!("{new_call}\n")
+            } else {
+                format!("\n{new_call}\n")
+            }
+        }
+    };
+
+    cmake.splice(offset..offset, &insert_text);
+    cmake.save()?;
+    println!("Inserted into {}: {new_call}", path.display());
     Ok(())
 }
 
