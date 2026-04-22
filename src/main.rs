@@ -111,6 +111,31 @@ enum SubCommand {
         #[clap(short, long)]
         verbose: bool,
     },
+    /// Lint source files with clang-tidy
+    #[clap(name = "lint", visible_alias = "l")]
+    Lint {
+        /// The path to the build directory relative to the project root
+        #[clap(short, long)]
+        build: Option<String>,
+        /// Lint all tracked source files
+        #[clap(short, long, conflicts_with_all = ["staged", "unstaged"])]
+        all: bool,
+        /// Lint only staged files
+        #[clap(short, long, conflicts_with_all = ["all", "unstaged"])]
+        staged: bool,
+        /// Lint only unstaged files
+        #[clap(short, long, conflicts_with_all = ["all", "staged"])]
+        unstaged: bool,
+        /// Apply suggested fixes (forces serial execution)
+        #[clap(long)]
+        fix: bool,
+        /// Treat warnings as errors (overrides .cmk.toml)
+        #[clap(short = 'W', long)]
+        warnings_as_errors: bool,
+        /// Print verbose output
+        #[clap(short, long)]
+        verbose: bool,
+    },
 }
 
 #[tokio::main]
@@ -143,6 +168,26 @@ async fn main() -> Result<()> {
                 dry_run,
                 verbose,
             } => cmd::exec_fmt(all, staged, unstaged, dry_run, verbose).await,
+            SubCommand::Lint {
+                build,
+                all,
+                staged,
+                unstaged,
+                fix,
+                warnings_as_errors,
+                verbose,
+            } => {
+                cmd::exec_lint(
+                    build,
+                    all,
+                    staged,
+                    unstaged,
+                    fix,
+                    warnings_as_errors,
+                    verbose,
+                )
+                .await
+            }
         }
     } else {
         cmd::exec_build(cli.target, cli.build, cli.interactive, cli.jobs).await

@@ -378,10 +378,25 @@ pub struct FmtConfig {
     pub ignore: Vec<String>,
 }
 
+/// Configuration for the `lint` subcommand, loaded from `.cmk.toml`.
+#[derive(Debug, Deserialize, Default)]
+pub struct LintConfig {
+    #[serde(default)]
+    pub ignore: Vec<String>,
+    #[serde(default)]
+    pub warnings_as_errors: bool,
+    #[serde(default)]
+    pub header_filter: Option<String>,
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct RawCmkConfig {
     #[serde(default)]
     fmt: FmtConfig,
+    #[serde(default)]
+    lint: LintConfig,
 }
 
 impl FmtConfig {
@@ -398,6 +413,23 @@ impl FmtConfig {
 
         let raw: RawCmkConfig = toml::from_str(&content)?;
         Ok(raw.fmt)
+    }
+}
+
+impl LintConfig {
+    /// Load lint configuration from `.cmk.toml` in the project root.
+    /// Returns default config if the file doesn't exist.
+    pub fn load(project_root: &Path) -> Result<Self> {
+        let config_path = project_root.join(CONFIG_FILE_NAME);
+        if !config_path.exists() {
+            return Ok(Self::default());
+        }
+
+        let content = std::fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read {}", config_path.display()))?;
+
+        let raw: RawCmkConfig = toml::from_str(&content)?;
+        Ok(raw.lint)
     }
 }
 

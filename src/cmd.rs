@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use cmk::{
-    CMakeProject, CpmInfo, FmtConfig, PackageIndex, Target, completing_read,
+    CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target, completing_read,
     default::load_template, get_project_root,
 };
 use tokio::process::Command;
@@ -228,7 +228,7 @@ pub(crate) async fn exec_refresh(build: Option<String>) -> Result<()> {
     Ok(())
 }
 
-// ========== Fmt command ==========
+// ========== Source file selection (shared by fmt/lint) ==========
 
 fn is_c_or_cpp(path: &Path) -> bool {
     matches!(
@@ -254,42 +254,60 @@ fn is_c_or_cpp(path: &Path) -> bool {
     )
 }
 
-pub(crate) async fn exec_fmt(
-    all: bool,
-    staged: bool,
-    unstaged: bool,
-    dry_run: bool,
-    verbose: bool,
-) -> Result<()> {
-    let project_root = get_project_root().await?;
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FileSelection {
+    All,
+    Staged,
+    Unstaged,
+    Changed,
+}
 
-    async fn run_git(args: &[&str], project_root: &Path) -> Result<String> {
-        let output = Command::new("git")
-            .args(args)
-            .current_dir(project_root)
-            .output()
-            .await?;
-        Ok(String::from_utf8(output.stdout)?)
-    }
-
-    let output_str = if all {
-        run_git(&["ls-files"], &project_root).await?
-    } else if staged {
-        run_git(&["diff", "--name-only", "--cached"], &project_root).await?
-    } else if unstaged {
-        run_git(&["diff", "--name-only"], &project_root).await?
-    } else {
-        // Default: both staged + unstaged vs HEAD
-        let output = Command::new("git")
-            .args(["diff", "--name-only", "HEAD"])
-            .current_dir(&project_root)
-            .output()
-            .await?;
-        if output.status.success() {
-            String::from_utf8(output.stdout)?
+impl FileSelection {
+    fn from_flags(all: bool, staged: bool, unstaged: bool) -> Self {
+        if all {
+            Self::All
+        } else if staged {
+            Self::Staged
+        } else if unstaged {
+            Self::Unstaged
         } else {
-            // Fresh repo with no commits: fall back to --cached
-            run_git(&["diff", "--name-only", "--cached"], &project_root).await?
+            Self::Changed
+        }
+    }
+}
+
+async fn run_git(args: &[&str], project_root: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(project_root)
+        .output()
+        .await?;
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+async fn collect_source_files(
+    project_root: &Path,
+    selection: FileSelection,
+    ignore_patterns: &[String],
+    verbose: bool,
+) -> Result<Vec<PathBuf>> {
+    let output_str = match selection {
+        FileSelection::All => run_git(&["ls-files"], project_root).await?,
+        FileSelection::Staged => {
+            run_git(&["diff", "--name-only", "--cached"], project_root).await?
+        }
+        FileSelection::Unstaged => run_git(&["diff", "--name-only"], project_root).await?,
+        FileSelection::Changed => {
+            let output = Command::new("git")
+                .args(["diff", "--name-only", "HEAD"])
+                .current_dir(project_root)
+                .output()
+                .await?;
+            if output.status.success() {
+                String::from_utf8(output.stdout)?
+            } else {
+                run_git(&["diff", "--name-only", "--cached"], project_root).await?
+            }
         }
     };
 
@@ -300,20 +318,18 @@ pub(crate) async fn exec_fmt(
         .filter(|path| path.exists())
         .collect();
 
-    // Filter out ignored files based on .cmk.toml [fmt] ignore patterns
-    let fmt_config = FmtConfig::load(&project_root)?;
-    let candidates = if fmt_config.ignore.is_empty() {
+    let candidates = if ignore_patterns.is_empty() {
         candidates
     } else {
         let mut builder = globset::GlobSetBuilder::new();
-        for pattern in &fmt_config.ignore {
+        for pattern in ignore_patterns {
             builder.add(globset::Glob::new(pattern)?);
         }
         let ignore_set = builder.build()?;
         candidates
             .into_iter()
             .filter(|path| {
-                let rel = path.strip_prefix(&project_root).unwrap_or(path);
+                let rel = path.strip_prefix(project_root).unwrap_or(path);
                 let ignored = ignore_set.is_match(rel);
                 if verbose && ignored {
                     println!("Skipping (ignored): {}", rel.display());
@@ -327,12 +343,7 @@ pub(crate) async fn exec_fmt(
         println!("Found {} candidate file(s).", candidates.len());
     }
 
-    if candidates.is_empty() {
-        println!("No source files to format.");
-        return Ok(());
-    }
-
-    let files: Vec<PathBuf> = candidates
+    Ok(candidates
         .into_iter()
         .filter(|path| {
             let is_src = is_c_or_cpp(path);
@@ -341,7 +352,23 @@ pub(crate) async fn exec_fmt(
             }
             is_src
         })
-        .collect();
+        .collect())
+}
+
+// ========== Fmt command ==========
+
+pub(crate) async fn exec_fmt(
+    all: bool,
+    staged: bool,
+    unstaged: bool,
+    dry_run: bool,
+    verbose: bool,
+) -> Result<()> {
+    let project_root = get_project_root().await?;
+    let fmt_config = FmtConfig::load(&project_root)?;
+    let selection = FileSelection::from_flags(all, staged, unstaged);
+    let files =
+        collect_source_files(&project_root, selection, &fmt_config.ignore, verbose).await?;
 
     if files.is_empty() {
         println!("No source files to format.");
@@ -454,5 +481,149 @@ pub(crate) async fn exec_fmt(
 
     let changed = changed.load(std::sync::atomic::Ordering::Relaxed);
     println!("Formatted {} file(s), {} changed.", files.len(), changed);
+    Ok(())
+}
+
+// ========== Lint command ==========
+
+pub(crate) async fn exec_lint(
+    build: Option<String>,
+    all: bool,
+    staged: bool,
+    unstaged: bool,
+    fix: bool,
+    warnings_as_errors: bool,
+    verbose: bool,
+) -> Result<()> {
+    let project = CMakeProject::new().await?;
+    let project_root = project.project_root.clone();
+
+    let build_dir = if let Some(name) = build {
+        project.get_build_dir(&name)?.clone()
+    } else if project.build_dirs.len() == 1 {
+        project.build_dirs.values().next().unwrap().clone()
+    } else if let Some(k) = project.detect_pwd_key() {
+        project.get_build_dir(&k)?.clone()
+    } else {
+        let dirs = project.list_build_dirs();
+        let res = completing_read(&dirs).await?;
+        if res.is_empty() {
+            return Err(anyhow!("No build directory selected"));
+        }
+        project.get_build_dir(&res)?.clone()
+    };
+
+    let cdb = build_dir.join("compile_commands.json");
+    if !cdb.exists() {
+        return Err(anyhow!(
+            "compile_commands.json not found in {} (run `cmk refresh` first, and ensure CMAKE_EXPORT_COMPILE_COMMANDS=ON)",
+            build_dir.display()
+        ));
+    }
+
+    let lint_config = LintConfig::load(&project_root)?;
+    let selection = FileSelection::from_flags(all, staged, unstaged);
+    let files =
+        collect_source_files(&project_root, selection, &lint_config.ignore, verbose).await?;
+
+    if files.is_empty() {
+        println!("No source files to lint.");
+        return Ok(());
+    }
+
+    if verbose {
+        for file in &files {
+            println!("{}", file.display());
+        }
+    }
+
+    let warnings_as_errors = warnings_as_errors || lint_config.warnings_as_errors;
+    let header_filter = lint_config.header_filter.clone();
+    let extra_args = Arc::new(lint_config.extra_args);
+    let build_dir = Arc::new(build_dir);
+    let project_root = Arc::new(project_root);
+
+    let build_args = move || -> Vec<String> {
+        let mut args = vec!["-p".to_string(), build_dir.display().to_string()];
+        if let Some(filter) = &header_filter {
+            args.push(format!("-header-filter={filter}"));
+        }
+        if warnings_as_errors {
+            args.push("-warnings-as-errors=*".to_string());
+        }
+        if fix {
+            args.push("--fix".to_string());
+        }
+        for a in extra_args.iter() {
+            args.push(a.clone());
+        }
+        args
+    };
+
+    let total = files.len();
+    let jobs = if fix {
+        1
+    } else {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    };
+    let chunk_size = total.div_ceil(jobs);
+
+    let failed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stdout_lock = Arc::new(tokio::sync::Mutex::new(()));
+    let mut handles = Vec::new();
+
+    for chunk in files.chunks(chunk_size) {
+        let chunk: Vec<PathBuf> = chunk.to_vec();
+        let project_root = Arc::clone(&project_root);
+        let failed = Arc::clone(&failed);
+        let stdout_lock = Arc::clone(&stdout_lock);
+        let base_args = build_args();
+        handles.push(tokio::spawn(async move {
+            for file in &chunk {
+                let mut cmd = Command::new("clang-tidy");
+                cmd.args(&base_args)
+                    .arg(file)
+                    .current_dir(project_root.as_ref());
+                let output = match cmd.output().await {
+                    Ok(o) => o,
+                    Err(e) => {
+                        failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let _g = stdout_lock.lock().await;
+                        eprintln!("clang-tidy failed to start for {}: {e}", file.display());
+                        continue;
+                    }
+                };
+                let success = output.status.success();
+                if !success {
+                    failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let has_output = !stdout.trim().is_empty() || !stderr.trim().is_empty();
+                if has_output || !success {
+                    let _g = stdout_lock.lock().await;
+                    println!("--- {} ---", file.display());
+                    if !stdout.is_empty() {
+                        print!("{stdout}");
+                    }
+                    if !stderr.is_empty() {
+                        eprint!("{stderr}");
+                    }
+                }
+            }
+        }));
+    }
+
+    for handle in handles {
+        handle.await?;
+    }
+
+    let failed = failed.load(std::sync::atomic::Ordering::Relaxed);
+    if failed > 0 {
+        return Err(anyhow!("{failed}/{total} file(s) failed clang-tidy"));
+    }
+    println!("Linted {total} file(s).");
     Ok(())
 }
