@@ -558,10 +558,22 @@ pub(crate) async fn exec_lint(
 
     let cdb = build_dir.join("compile_commands.json");
     if !cdb.exists() {
-        return Err(anyhow!(
-            "compile_commands.json not found in {} (run `cmk refresh` first, and ensure CMAKE_EXPORT_COMPILE_COMMANDS=ON)",
+        let key = project
+            .build_dirs
+            .iter()
+            .find(|(_, p)| *p == &build_dir)
+            .map(|(k, _)| k.clone());
+        eprintln!(
+            "compile_commands.json missing in {} — running `cmake` to generate it.",
             build_dir.display()
-        ));
+        );
+        project.refresh_build_dir(key.as_deref()).await?;
+        if !cdb.exists() {
+            return Err(anyhow!(
+                "compile_commands.json still missing after refresh. Ensure CMAKE_EXPORT_COMPILE_COMMANDS=ON in {}",
+                build_dir.display()
+            ));
+        }
     }
 
     let lint_config = LintConfig::load(&project_root)?;
