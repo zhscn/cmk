@@ -1,4 +1,5 @@
 pub mod cmake;
+pub mod cmake_ast;
 pub mod config;
 pub mod default;
 pub mod package;
