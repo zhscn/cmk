@@ -248,28 +248,48 @@ impl EnvConfig {
         }
     }
 
-    /// Expand variables in a string (${VAR} syntax)
+    /// Expand variables in a string (${VAR} syntax).
+    ///
+    /// Lookup order: built-in `PROJECT_BUILD_ROOT`, `[vars]` entries, then the
+    /// process environment. Unknown names are left intact so a typo doesn't
+    /// silently expand to an empty string.
     fn expand_vars(&self, s: &str, build_dir: Option<&Path>) -> String {
         let mut result = s.to_string();
 
-        // Handle PROJECT_BUILD_ROOT if build_dir is provided
         if let Some(dir) = build_dir {
-            let pattern = "${PROJECT_BUILD_ROOT}";
-            if result.contains(pattern) {
-                result = result.replace(pattern, &dir.display().to_string());
-            }
+            result = result.replace("${PROJECT_BUILD_ROOT}", &dir.display().to_string());
         }
 
-        // Keep expanding until no more variables are found (handles nested vars)
         loop {
             let mut changed = false;
-            for (var, value) in &self.vars {
-                let pattern = format!("${{{var}}}");
-                if result.contains(&pattern) {
-                    result = result.replace(&pattern, value);
+            let mut out = String::with_capacity(result.len());
+            let mut rest = result.as_str();
+            while let Some(start) = rest.find("${") {
+                out.push_str(&rest[..start]);
+                let after = &rest[start + 2..];
+                let Some(end) = after.find('}') else {
+                    out.push_str(&rest[start..]);
+                    rest = "";
+                    break;
+                };
+                let name = &after[..end];
+                let value = self
+                    .vars
+                    .get(name)
+                    .cloned()
+                    .or_else(|| std::env::var(name).ok());
+                if let Some(value) = value {
+                    out.push_str(&value);
                     changed = true;
+                } else {
+                    out.push_str("${");
+                    out.push_str(name);
+                    out.push('}');
                 }
+                rest = &after[end + 1..];
             }
+            out.push_str(rest);
+            result = out;
             if !changed {
                 break;
             }
