@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::process::Command;
 
-use crate::config::EnvConfig;
+use crate::config::{BuildConfig, EnvConfig};
 use crate::process::{completing_read, wait_with_cancel};
 
 pub async fn get_project_root() -> Result<PathBuf> {
@@ -32,6 +32,7 @@ pub struct CMakeProject {
     pub project_root: PathBuf,
     pub build_dirs: HashMap<String, PathBuf>,
     pub env_config: EnvConfig,
+    pub build_config: BuildConfig,
 }
 
 impl CMakeProject {
@@ -54,11 +55,13 @@ impl CMakeProject {
         }
 
         let env_config = EnvConfig::load(&project_root)?;
+        let build_config = BuildConfig::load(&project_root)?;
 
         Ok(Self {
             project_root,
             build_dirs,
             env_config,
+            build_config,
         })
     }
 
@@ -127,12 +130,28 @@ impl CMakeProject {
                 .with_context(|| "No build directories available")
         } else if let Some(p) = self.detect_pwd() {
             Ok(p)
+        } else if let Some(default) = &self.build_config.default {
+            self.build_dirs.get(default).with_context(|| {
+                format!(
+                    "Configured default build dir '{default}' not found. Known: {:?}",
+                    self.list_build_dirs()
+                )
+            })
         } else {
             let res = completing_read(&self.list_build_dirs()).await?;
             if res.is_empty() {
                 return Err(anyhow!("No build directory selected"));
             }
             Ok(&self.build_dirs[&res])
+        }
+    }
+
+    /// Resolve a build dir given an optional explicit name. When `None`,
+    /// follows the cascade: single → PWD → configured default → fzf prompt.
+    pub async fn resolve_build_dir(&self, name: Option<&str>) -> Result<&PathBuf> {
+        match name {
+            Some(n) => self.get_build_dir(n),
+            None => self.get_build_dir_from_input().await,
         }
     }
 

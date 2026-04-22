@@ -173,6 +173,14 @@ pub(crate) async fn exec_build(
             dirs[0].clone()
         } else if let Some(k) = project.detect_pwd_key() {
             k
+        } else if let Some(default) = &project.build_config.default {
+            if !project.build_dirs.contains_key(default) {
+                return Err(anyhow!(
+                    "Configured default build dir '{default}' not found. Known: {:?}",
+                    dirs
+                ));
+            }
+            default.clone()
         } else {
             let res = completing_read(&dirs).await?;
             if res.is_empty() {
@@ -546,21 +554,7 @@ pub(crate) async fn exec_lint(
 ) -> Result<()> {
     let project = CMakeProject::new().await?;
     let project_root = project.project_root.clone();
-
-    let build_dir = if let Some(name) = build {
-        project.get_build_dir(&name)?.clone()
-    } else if project.build_dirs.len() == 1 {
-        project.build_dirs.values().next().unwrap().clone()
-    } else if let Some(k) = project.detect_pwd_key() {
-        project.get_build_dir(&k)?.clone()
-    } else {
-        let dirs = project.list_build_dirs();
-        let res = completing_read(&dirs).await?;
-        if res.is_empty() {
-            return Err(anyhow!("No build directory selected"));
-        }
-        project.get_build_dir(&res)?.clone()
-    };
+    let build_dir = project.resolve_build_dir(build.as_deref()).await?.clone();
 
     let cdb = build_dir.join("compile_commands.json");
     if !cdb.exists() {

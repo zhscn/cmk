@@ -36,6 +36,9 @@ LD_LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib", "${DEPS_INSTALL}/lib64"] }
 PKG_CONFIG_PATH = { prepend = ["${DEPS_INSTALL}/lib64/pkgconfig"] }
 LIBRARY_PATH = { prepend = ["${DEPS_INSTALL}/lib64"] }
 
+[build]
+default = "build/debug"  # used when PWD isn't inside a build dir and there are multiple
+
 [fmt]
 ignore = ["third_party/**", "*.pb.h"]
 

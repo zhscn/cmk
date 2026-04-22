@@ -5,7 +5,7 @@ pub mod package;
 pub mod process;
 
 pub use cmake::{CMakeProject, Target, get_project_root};
-pub use config::{EnvConfig, FmtConfig, LintConfig};
+pub use config::{BuildConfig, EnvConfig, FmtConfig, LintConfig};
 pub use default::Template;
 pub use package::{CpmInfo, PackageIndex};
 pub use process::completing_read;
