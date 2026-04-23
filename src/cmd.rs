@@ -512,6 +512,27 @@ fn is_c_or_cpp(path: &Path) -> bool {
     )
 }
 
+/// Translation units only — excludes headers. Used by lint since headers
+/// have no entry in compile_commands.json.
+fn is_translation_unit(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some(
+            "c" | "cc"
+                | "cpp"
+                | "cxx"
+                | "c++"
+                | "ixx"
+                | "cppm"
+                | "ccm"
+                | "cxxm"
+                | "c++m"
+                | "mxx"
+                | "mpp",
+        )
+    )
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FileSelection {
     All,
@@ -952,7 +973,18 @@ pub(crate) async fn exec_lint(
         vec![chosen]
     } else {
         let selection = FileSelection::from_flags(all, staged, unstaged);
-        collect_source_files(&project_root, selection, &lint_config.ignore, verbose).await?
+        let collected =
+            collect_source_files(&project_root, selection, &lint_config.ignore, verbose).await?;
+        collected
+            .into_iter()
+            .filter(|path| {
+                let is_tu = is_translation_unit(path);
+                if verbose && !is_tu {
+                    println!("Skipping (header): {}", path.display());
+                }
+                is_tu
+            })
+            .collect()
     };
 
     if files.is_empty() {
