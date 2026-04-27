@@ -43,7 +43,7 @@ pub fn prepare(
                 .next()
                 .unwrap_or("llvm-project.tar.xz")
                 .to_string();
-            let local = cmk_toolchain::fetch::fetch_to(url, downloads, &fname)?;
+            let local = cmk_toolchain::fetch::fetch_to_blocking(url, downloads, &fname)?;
             let sha = cmk_toolchain::extract::sha256_file(&local)?;
             std::fs::create_dir_all(into_dir)?;
             cmk_toolchain::extract::extract_tar_auto(&local, into_dir)

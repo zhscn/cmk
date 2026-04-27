@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 cmk-core = { path = "../cmk-core" }
 anyhow.workspace = true
+dirs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -3,7 +3,7 @@ use std::process::Command;
 use anyhow::{Result, bail};
 use cmk_core::store::Store;
 
-pub fn run(version: &str, rest: &[String]) -> Result<()> {
+pub async fn run(version: &str, rest: &[String]) -> Result<()> {
     if rest.is_empty() {
         bail!("usage: cmk toolchain exec <version> -- <cmd> [args...]");
     }

@@ -20,6 +20,6 @@ xz2.workspace = true
 url.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true
-reqwest.workspace = true
-ureq.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
 tokio.workspace = true
+futures.workspace = true

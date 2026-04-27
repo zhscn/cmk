@@ -2,7 +2,7 @@ use anyhow::Result;
 use cmk_core::store::Store;
 use cmk_toolchain::shim;
 
-pub fn run(keep: Option<usize>) -> Result<()> {
+pub async fn run(keep: Option<usize>) -> Result<()> {
     let store = Store::open()?;
     let mut bytes_freed: u64 = 0;
     for d in [store.downloads(), store.build_cache()] {

@@ -2,11 +2,11 @@ use anyhow::Result;
 use cmk_core::config::Config;
 use cmk_core::store::Store;
 
-pub fn run(available: bool) -> Result<()> {
+pub async fn run(available: bool) -> Result<()> {
     let store = Store::open()?;
     if available {
         let cfg = Config::load_or_default(&Store::config_path()?)?;
-        let idx = cmk_registry::fetch_index_first(&cfg.registries)?;
+        let idx = cmk_registry::fetch_index_first(&cfg.registries).await?;
         if idx.versions.is_empty() {
             println!("(registry returned an empty index)");
             return Ok(());

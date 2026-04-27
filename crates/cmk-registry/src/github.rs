@@ -2,11 +2,11 @@ use anyhow::{Context, Result};
 use cmk_core::manifest::Manifest;
 use url::Url;
 
-use crate::{Index, Registry, http};
+use crate::{Index, http};
 
 /// GitHub Releases-backed registry.
 ///
-/// Layout (design §5.2):
+/// Layout (design §6.4):
 /// - index:    `https://github.com/<repo>/releases/download/index/index.json`
 /// - manifest: `https://github.com/<repo>/releases/download/v<ver>/manifest.toml`
 /// - tarball:  `https://github.com/<repo>/releases/download/v<ver>/<asset>`
@@ -25,30 +25,23 @@ impl GithubReleases {
             repo = self.repo,
         )
     }
-}
 
-impl Registry for GithubReleases {
-    fn name(&self) -> &str {
-        "github"
-    }
-
-    fn fetch_index(&self) -> Result<Index> {
+    pub async fn fetch_index(&self) -> Result<Index> {
         let url = self.asset_url("index", "index.json");
-        let body = http::get_string(&url)?;
+        let body = http::get_string(&url).await?;
         let idx: Index =
             serde_json::from_str(&body).with_context(|| format!("parse index.json from {url}"))?;
         Ok(idx)
     }
 
-    fn fetch_manifest(&self, version: &str) -> Result<Manifest> {
+    pub async fn fetch_manifest(&self, version: &str) -> Result<Manifest> {
         let tag = format!("v{version}");
         let url = self.asset_url(&tag, "manifest.toml");
-        let body = http::get_string(&url)?;
-        Manifest::from_toml(&body)
-            .with_context(|| format!("parse manifest.toml from {url}"))
+        let body = http::get_string(&url).await?;
+        Manifest::from_toml(&body).with_context(|| format!("parse manifest.toml from {url}"))
     }
 
-    fn tarball_url(&self, version: &str, platform: &str, package: &str) -> Result<Url> {
+    pub fn tarball_url(&self, version: &str, platform: &str, package: &str) -> Result<Url> {
         let tag = format!("v{version}");
         let asset = format!("clang-{version}-{platform}-{package}.tar.zst");
         Ok(Url::parse(&self.asset_url(&tag, &asset))?)

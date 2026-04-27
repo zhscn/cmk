@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -8,6 +8,23 @@ use std::{
     path::PathBuf,
 };
 use tokio::task::JoinHandle;
+
+/// `$XDG_CONFIG_HOME/cmk/` (typically `~/.config/cmk/`).
+pub fn config_dir() -> Result<PathBuf> {
+    let base = dirs::config_dir()
+        .ok_or_else(|| anyhow!("cannot resolve $XDG_CONFIG_HOME / $HOME"))?;
+    Ok(base.join("cmk"))
+}
+
+/// Canonical location of the global package index per design.md §3.1.
+pub fn pkg_index_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("pkg.json"))
+}
+
+/// Cached metadata for the bundled CPM bootstrap script.
+pub fn cpm_info_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("cpm.json"))
+}
 
 #[derive(Debug, Serialize, Deserialize, Hash, Clone)]
 pub struct Package {

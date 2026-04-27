@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use cmk_core::manifest::Manifest;
 use url::Url;
 
-use crate::{Index, Registry, http};
+use crate::{Index, http};
 
 /// Plain HTTP mirror with the same layout as `GithubReleases`, just
 /// rooted at an arbitrary base URL (`<base>/<tag>/<asset>`).
@@ -28,30 +28,23 @@ impl HttpMirror {
         }
         Ok(s)
     }
-}
 
-impl Registry for HttpMirror {
-    fn name(&self) -> &str {
-        "http-mirror"
-    }
-
-    fn fetch_index(&self) -> Result<Index> {
+    pub async fn fetch_index(&self) -> Result<Index> {
         let url = self.join(&["index", "index.json"])?;
-        let body = http::get_string(&url)?;
+        let body = http::get_string(&url).await?;
         let idx: Index =
             serde_json::from_str(&body).with_context(|| format!("parse index.json from {url}"))?;
         Ok(idx)
     }
 
-    fn fetch_manifest(&self, version: &str) -> Result<Manifest> {
+    pub async fn fetch_manifest(&self, version: &str) -> Result<Manifest> {
         let tag = format!("v{version}");
         let url = self.join(&[&tag, "manifest.toml"])?;
-        let body = http::get_string(&url)?;
-        Manifest::from_toml(&body)
-            .with_context(|| format!("parse manifest.toml from {url}"))
+        let body = http::get_string(&url).await?;
+        Manifest::from_toml(&body).with_context(|| format!("parse manifest.toml from {url}"))
     }
 
-    fn tarball_url(&self, version: &str, platform: &str, package: &str) -> Result<Url> {
+    pub fn tarball_url(&self, version: &str, platform: &str, package: &str) -> Result<Url> {
         let tag = format!("v{version}");
         let asset = format!("clang-{version}-{platform}-{package}.tar.zst");
         Ok(Url::parse(&self.join(&[&tag, &asset])?)?)

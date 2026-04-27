@@ -382,7 +382,7 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
-            SubCommand::Toolchain { cmd } => dispatch_toolchain(cmd),
+            SubCommand::Toolchain { cmd } => dispatch_toolchain(cmd).await,
             SubCommand::Deps { cmd } => dispatch_deps(cmd),
             SubCommand::Cache { cmd } => dispatch_cache(cmd),
         }
@@ -391,20 +391,20 @@ async fn main() -> Result<()> {
     }
 }
 
-fn dispatch_toolchain(c: ToolchainCmd) -> Result<()> {
+async fn dispatch_toolchain(c: ToolchainCmd) -> Result<()> {
     use cmd::toolchain;
     match c {
         ToolchainCmd::Install {
             version,
             components,
             manifest,
-        } => toolchain::install::run(version, components, manifest),
-        ToolchainCmd::Remove { version } => toolchain::remove::run(&version),
-        ToolchainCmd::List { available } => toolchain::list::run(available),
-        ToolchainCmd::Use { version } => toolchain::use_::run(&version),
-        ToolchainCmd::Which { bin } => toolchain::which::run(&bin),
-        ToolchainCmd::Exec { version, rest } => toolchain::exec::run(&version, &rest),
-        ToolchainCmd::Gc { keep } => toolchain::gc::run(keep),
+        } => toolchain::install::run(version, components, manifest).await,
+        ToolchainCmd::Remove { version } => toolchain::remove::run(&version).await,
+        ToolchainCmd::List { available } => toolchain::list::run(available).await,
+        ToolchainCmd::Use { version } => toolchain::use_::run(&version).await,
+        ToolchainCmd::Which { bin } => toolchain::which::run(&bin).await,
+        ToolchainCmd::Exec { version, rest } => toolchain::exec::run(&version, &rest).await,
+        ToolchainCmd::Gc { keep } => toolchain::gc::run(keep).await,
         ToolchainCmd::Build {
             version,
             target,
@@ -417,16 +417,19 @@ fn dispatch_toolchain(c: ToolchainCmd) -> Result<()> {
             shell,
             output,
             source,
-        } => toolchain::build::run(toolchain::build::BuildArgs {
-            version,
-            target,
-            no_container,
-            output,
-            source,
-            image,
-            runtime,
-            shell,
-        }),
+        } => {
+            toolchain::build::run(toolchain::build::BuildArgs {
+                version,
+                target,
+                no_container,
+                output,
+                source,
+                image,
+                runtime,
+                shell,
+            })
+            .await
+        }
         ToolchainCmd::Publish { .. } => {
             anyhow::bail!("`cmk toolchain publish` lands in M11 (release pipeline)")
         }

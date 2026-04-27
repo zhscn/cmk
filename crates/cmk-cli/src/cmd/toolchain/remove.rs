@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use cmk_core::store::Store;
 use cmk_toolchain::shim;
 
-pub fn run(version: &str) -> Result<()> {
+pub async fn run(version: &str) -> Result<()> {
     let store = Store::open()?;
     let plat = cmk_core::platform::current_platform()?;
     let key = format!("{version}-{plat}");

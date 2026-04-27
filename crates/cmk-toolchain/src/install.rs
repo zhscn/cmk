@@ -23,7 +23,7 @@ pub struct InstallReport {
     pub bin_dir: PathBuf,
 }
 
-pub fn install_packages(
+pub async fn install_packages(
     store: &Store,
     manifest: &Manifest,
     plan: &InstallPlan,
@@ -63,6 +63,7 @@ pub fn install_packages(
         let dl_dir = store.downloads().join(&plan.version);
         let fname = format!("{}-{}-{}.tar.zst", plan.version, plan.platform, pkg_name);
         let local = fetch_to(&pkg.url, &dl_dir, &fname)
+            .await
             .with_context(|| format!("fetch package `{pkg_name}` from `{}`", pkg.url))?;
 
         verify_sha256(&local, &pkg.sha256)

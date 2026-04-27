@@ -19,7 +19,7 @@ pub struct BuildArgs {
     pub shell: bool,
 }
 
-pub fn run(args: BuildArgs) -> Result<()> {
+pub async fn run(args: BuildArgs) -> Result<()> {
     let target_key = args.target.unwrap_or_else(|| {
         cmk_core::platform::current_platform().unwrap_or_else(|_| "darwin-arm64".into())
     });
@@ -51,13 +51,19 @@ pub fn run(args: BuildArgs) -> Result<()> {
                 downloads: store.downloads(),
                 jobs: macos::detect_jobs(),
             };
-            let outs = macos::run(&build).with_context(|| "macOS build pipeline")?;
+            // Builder internals stay sync (heavy std::process::Command +
+            // file IO); offload to a blocking task so the async runtime
+            // isn't blocked.
+            let outs = tokio::task::spawn_blocking(move || macos::run(&build))
+                .await
+                .map_err(anyhow::Error::from)?
+                .with_context(|| "macOS build pipeline")?;
             print_summary(&output_dir, &outs);
             Ok(())
         }
         "linux-x86_64" | "linux-aarch64" => {
             if args.no_container {
-                bail!("--no-container is rejected on Linux (design §7.4)");
+                bail!("--no-container is rejected on Linux (design §6.5)");
             }
             let target = match target_key.as_str() {
                 "linux-x86_64" => Target {
@@ -93,7 +99,10 @@ pub fn run(args: BuildArgs) -> Result<()> {
                 ccache_dir: Some(store.ccache()),
                 shell: args.shell,
             };
-            let outs = linux::run(&build).with_context(|| "Linux build pipeline")?;
+            let outs = tokio::task::spawn_blocking(move || linux::run(&build))
+                .await
+                .map_err(anyhow::Error::from)?
+                .with_context(|| "Linux build pipeline")?;
             print_summary(&output_dir, &outs);
             Ok(())
         }

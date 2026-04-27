@@ -33,8 +33,7 @@ pub(crate) fn get_default_jobs() -> usize {
 // ========== Add command ==========
 
 pub(crate) async fn exec_add(name: String, project: bool) -> Result<()> {
-    let home = std::env::var("HOME")?;
-    let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
+    let pkg_info_path = cmk_pkg::pkg_index_path()?;
     let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
     let (owner, repo) = name
         .split_once('/')
@@ -97,8 +96,7 @@ async fn insert_cpm_into_cmakelists(owner: &str, repo: &str, tag: &str) -> Resul
 // ========== Get command ==========
 
 pub(crate) async fn exec_get(name: String) -> Result<()> {
-    let home = std::env::var("HOME")?;
-    let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
+    let pkg_info_path = cmk_pkg::pkg_index_path()?;
     let index = PackageIndex::load_or_create(&pkg_info_path)?;
     let pkg_name = index.get_pkg_name(&name)?;
     let release = index.get_release(&pkg_name)?;
@@ -109,12 +107,11 @@ pub(crate) async fn exec_get(name: String) -> Result<()> {
 // ========== Update command ==========
 
 pub(crate) async fn exec_update(project: bool, yes: bool) -> Result<()> {
-    let home = std::env::var("HOME")?;
-    let pkg_info_path = Path::new(&home).join(".config/cmk/pkg.json");
+    let pkg_info_path = cmk_pkg::pkg_index_path()?;
     let mut index = PackageIndex::load_or_create(&pkg_info_path)?;
     index.update().await?;
     index.save(&pkg_info_path)?;
-    let cpm_info_path = Path::new(&home).join(".config/cmk/cpm.json");
+    let cpm_info_path = cmk_pkg::cpm_info_path()?;
     let old_cpm = CpmInfo::load(&cpm_info_path)?;
     let new_cpm = CpmInfo::query_from_github().await?;
     if old_cpm.version != new_cpm.version {
@@ -231,8 +228,7 @@ pub(crate) async fn exec_new(name: String, template: Option<String>) -> Result<(
 
     Command::new("git").arg("init").spawn()?.wait().await?;
 
-    let home = std::env::var("HOME")?;
-    let cpm_info_path = Path::new(&home).join(".config/cmk/cpm.json");
+    let cpm_info_path = cmk_pkg::cpm_info_path()?;
     let info = if let Ok(info) = CpmInfo::load(&cpm_info_path) {
         info
     } else {
@@ -397,13 +393,9 @@ pub(crate) async fn exec_pkg_option(name: String, opts: Vec<String>) -> Result<(
         .collect::<Result<_>>()?;
 
     // Resolve `name` against the global index so an alias like `fmt` works.
-    let home = std::env::var("HOME").ok();
-    let resolved = home
-        .as_ref()
-        .and_then(|h| {
-            let p = Path::new(h).join(".config/cmk/pkg.json");
-            PackageIndex::load_or_create(&p).ok()
-        })
+    let resolved = cmk_pkg::pkg_index_path()
+        .ok()
+        .and_then(|p| PackageIndex::load_or_create(&p).ok())
         .and_then(|idx| idx.get_pkg_name(&name).ok())
         .unwrap_or_else(|| name.clone());
     let (resolved_owner, resolved_repo) = resolved

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result, bail};
 use cmk_core::config::Config;
 use cmk_core::manifest::Manifest;
@@ -5,14 +7,18 @@ use cmk_core::store::Store;
 use cmk_toolchain::install::{InstallPlan, install_packages};
 use cmk_toolchain::shim;
 
-pub fn run(version: Option<String>, components: Option<String>, manifest: Option<String>) -> Result<()> {
+pub async fn run(
+    version: Option<String>,
+    components: Option<String>,
+    manifest: Option<String>,
+) -> Result<()> {
     let store = Store::open()?;
     store.ensure_skeleton()?;
     let plat = cmk_core::platform::current_platform()?;
 
     let (manifest, version) = match manifest {
         Some(spec) => {
-            let text = read_manifest_text(&spec)?;
+            let text = read_manifest_text(&spec).await?;
             let m = Manifest::from_toml(&text)?;
             let v = version.unwrap_or_else(|| m.release.version.clone());
             (m, v)
@@ -20,7 +26,7 @@ pub fn run(version: Option<String>, components: Option<String>, manifest: Option
         None => {
             let v = version.ok_or_else(|| anyhow::anyhow!("missing <version>"))?;
             let cfg = Config::load_or_default(&Store::config_path()?)?;
-            let m = cmk_registry::fetch_manifest_any(&cfg.registries, &v)?;
+            let m = cmk_registry::fetch_manifest_any(&cfg.registries, &v).await?;
             cache_manifest(&store, &v, &m)?;
             (m, v)
         }
@@ -49,7 +55,7 @@ pub fn run(version: Option<String>, components: Option<String>, manifest: Option
         packages: pkgs,
     };
 
-    let report = install_packages(&store, &manifest, &plan)?;
+    let report = install_packages(&store, &manifest, &plan).await?;
     for p in &report.installed {
         println!("installed {version} :: {p}");
     }
@@ -65,25 +71,33 @@ pub fn run(version: Option<String>, components: Option<String>, manifest: Option
     Ok(())
 }
 
-fn read_manifest_text(spec: &str) -> Result<String> {
+async fn read_manifest_text(spec: &str) -> Result<String> {
     if spec.starts_with("http://") || spec.starts_with("https://") {
-        return http_get_text(spec);
+        return http_get_text(spec).await;
     }
     if let Some(path) = spec.strip_prefix("file://") {
-        return std::fs::read_to_string(path).map_err(Into::into);
+        return tokio::fs::read_to_string(path).await.map_err(Into::into);
     }
-    std::fs::read_to_string(spec).with_context(|| format!("read manifest {spec}"))
+    tokio::fs::read_to_string(spec)
+        .await
+        .with_context(|| format!("read manifest {spec}"))
 }
 
-fn http_get_text(url: &str) -> Result<String> {
-    let resp = ureq::get(url)
-        .timeout(std::time::Duration::from_secs(60))
-        .call()
+async fn http_get_text(url: &str) -> Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
         .with_context(|| format!("GET {url}"))?;
-    if resp.status() / 100 != 2 {
-        bail!("GET {url}: HTTP {}", resp.status());
+    let status = resp.status();
+    if !status.is_success() {
+        bail!("GET {url}: HTTP {status}");
     }
-    resp.into_string()
+    resp.text()
+        .await
         .with_context(|| format!("read body of {url}"))
 }
 
