@@ -31,8 +31,13 @@ rm -rf zstd && mkdir zstd && extract "$DL/zstd.tar.gz" zstd
 # ----- openssl (no docs, shared+static) -----
 fetch openssl "$OPENSSL_URL" "$OPENSSL_SHA" "$DL/openssl.tar.gz"
 rm -rf openssl && mkdir openssl && extract "$DL/openssl.tar.gz" openssl
+case "$(uname -m)" in
+  aarch64|arm64) OPENSSL_TARGET=linux-aarch64 ;;
+  x86_64)        OPENSSL_TARGET=linux-x86_64 ;;
+  *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+esac
 ( cd openssl
-  ./Configure linux-aarch64 \
+  ./Configure "$OPENSSL_TARGET" \
     --prefix="$PREFIX" --openssldir="$PREFIX/ssl" \
     no-tests shared \
     -Wl,-rpath,"$PREFIX/lib"
