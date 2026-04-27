@@ -21,12 +21,12 @@ cd "$SRC"
 # ----- zlib -----
 fetch zlib "$ZLIB_URL" "$ZLIB_SHA" "$DL/zlib.tar.gz"
 rm -rf zlib && mkdir zlib && extract "$DL/zlib.tar.gz" zlib
-( cd zlib && ./configure --prefix="$PREFIX" --static && make -j"$JOBS" && make install )
+( cd zlib && CFLAGS="-O3 -fPIC" ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install )
 
 # ----- zstd -----
 fetch zstd "$ZSTD_URL" "$ZSTD_SHA" "$DL/zstd.tar.gz"
 rm -rf zstd && mkdir zstd && extract "$DL/zstd.tar.gz" zstd
-( cd zstd && make -j"$JOBS" PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
+( cd zstd && make -j"$JOBS" MOREFLAGS=-fPIC PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
 
 # ----- openssl (no docs, shared+static) -----
 fetch openssl "$OPENSSL_URL" "$OPENSSL_SHA" "$DL/openssl.tar.gz"
@@ -34,7 +34,7 @@ rm -rf openssl && mkdir openssl && extract "$DL/openssl.tar.gz" openssl
 ( cd openssl
   ./Configure linux-aarch64 \
     --prefix="$PREFIX" --openssldir="$PREFIX/ssl" \
-    no-tests no-docs shared \
+    no-tests shared \
     -Wl,-rpath,"$PREFIX/lib"
   make -j"$JOBS"
   make install_sw )
@@ -72,16 +72,21 @@ rm -rf ninja && mkdir ninja && extract "$DL/ninja.tar.gz" ninja
   "$PREFIX/bin/cmake" --build build -j"$JOBS"
   "$PREFIX/bin/cmake" --install build )
 
-# ----- git (no gettext, no perl docs) -----
+# ----- git (plain make; no autoconf/curl/expat needed in container) -----
 fetch git "$GIT_URL" "$GIT_SHA" "$DL/git.tar.xz"
 rm -rf git && mkdir git && extract "$DL/git.tar.xz" git
 ( cd git
-  make configure
-  ./configure --prefix="$PREFIX" --without-tcltk \
-    CFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib" \
-    LIBS="-lz"
-  make -j"$JOBS" NO_GETTEXT=1 NO_PERL=1 NO_TCLTK=1 NO_INSTALL_HARDLINKS=1 all
-  make NO_GETTEXT=1 NO_PERL=1 NO_TCLTK=1 NO_INSTALL_HARDLINKS=1 install )
+  GIT_FLAGS=(
+    prefix="$PREFIX"
+    NO_GETTEXT=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1
+    NO_CURL=1 NO_EXPAT=1 NO_OPENSSL=1
+    NO_INSTALL_HARDLINKS=1
+    CFLAGS="-O2 -I$PREFIX/include"
+    LDFLAGS="-L$PREFIX/lib -Wl,-rpath,$PREFIX/lib"
+    ZLIB_PATH="$PREFIX"
+  )
+  make -j"$JOBS" "${GIT_FLAGS[@]}" all
+  make "${GIT_FLAGS[@]}" install )
 
 # ----- ccache -----
 fetch ccache "$CCACHE_URL" "$CCACHE_SHA" "$DL/ccache.tar.xz"

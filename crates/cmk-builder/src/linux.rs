@@ -231,7 +231,6 @@ $CMAKE -G Ninja "$LLVM_SRC/llvm" \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
-  -DLLVM_ENABLE_LLD=ON \
   -DLLVM_BUILD_LLVM_DYLIB=ON \
   -DLLVM_LINK_LLVM_DYLIB=ON \
   -DCLANG_LINK_CLANG_DYLIB=ON \
@@ -293,6 +292,7 @@ mod tests {
             "LLVM_TARGETS_TO_BUILD=\"X86\"",
             "LLVM_ENABLE_PROJECTS=\"clang;lld;clang-tools-extra\"",
             "LLVM_ENABLE_RUNTIMES=\"compiler-rt;libcxx;libcxxabi\"",
+            "LLVM_USE_LINKER=lld",
             "LLVM_BUILD_LLVM_DYLIB=ON",
             "LLVM_LINK_LLVM_DYLIB=ON",
             "CLANG_LINK_CLANG_DYLIB=ON",
@@ -306,6 +306,7 @@ mod tests {
             "x86_64-unknown-linux-gnu",
             "COMPILER_RT_BUILD_SANITIZERS=ON",
         ] {
+            assert!(!s.contains("LLVM_ENABLE_LLD=ON"), "ENABLE_LLD must not coexist with USE_LINKER=lld");
             assert!(s.contains(needle), "script missing `{needle}`:\n{s}");
         }
     }

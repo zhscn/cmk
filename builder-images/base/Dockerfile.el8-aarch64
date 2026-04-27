@@ -40,8 +40,11 @@ ENV PATH=/opt/rh/gcc-toolset-12/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr
 ENV LD_LIBRARY_PATH=/opt/rh/gcc-toolset-12/root/usr/lib64
 
 WORKDIR /work
-COPY deps.lock fetch.sh build-deps.sh build-clang.sh /work/
-RUN chmod +x /work/fetch.sh /work/build-deps.sh /work/build-clang.sh
+
+# Split COPY into deps + clang so editing build-clang.sh doesn't invalidate
+# the (slow) deps build cache.
+COPY deps.lock fetch.sh build-deps.sh /work/
+RUN chmod +x /work/fetch.sh /work/build-deps.sh
 
 # ----- 1. host deps into /opt/cmk-base/deps -----
 RUN /work/build-deps.sh
@@ -54,6 +57,8 @@ RUN . /work/deps.lock \
  && rm -f /tmp/cmk-dl/llvm.tar.xz
 
 # ----- 3. two-stage clang bootstrap into /opt/cmk-base/bootstrap-clang -----
+COPY build-clang.sh /work/
+RUN chmod +x /work/build-clang.sh
 ENV LLVM_SRC=/tmp/cmk-src/llvm-project
 RUN /work/build-clang.sh
 
@@ -80,9 +85,9 @@ FROM rockylinux:8 AS final
 # Only what cmk's container script + the LLVM build need at runtime.
 # All language tools come from /opt/cmk-base.
 RUN dnf -y install \
-      bash coreutils findutils tar gzip xz zstd \
-      libgcc libstdc++ glibc-langpack-en \
-      shadow-utils which file diffutils patch \
+      findutils xz zstd glibc-langpack-en \
+      glibc-devel gcc \
+      which file diffutils patch \
  && dnf clean all
 
 COPY --from=bootstrap /opt/cmk-base /opt/cmk-base

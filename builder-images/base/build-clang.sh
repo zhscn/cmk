@@ -18,6 +18,14 @@ CMAKE="$PREFIX/bin/cmake"
 NINJA="$PREFIX/bin/ninja"
 PYTHON="$PREFIX/bin/python3"
 
+# stage0 gcc-toolset isn't always on PATH in fresh RUN layers — locate it once
+# and pass explicitly to cmake (avoids relying on Dockerfile ENV which would
+# otherwise invalidate the deps cache when changed).
+GCC_BIN=/opt/rh/gcc-toolset-12/root/usr/bin
+GCC0="$GCC_BIN/gcc"
+GXX0="$GCC_BIN/g++"
+export PATH="$PREFIX/bin:$GCC_BIN:$PATH"
+
 # Detect arch -> LLVM target
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -35,6 +43,9 @@ mkdir -p "$STAGE1" "$STAGE1_BUILD"
   -B "$STAGE1_BUILD" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$STAGE1" \
+  -DCMAKE_MAKE_PROGRAM="$NINJA" \
+  -DCMAKE_C_COMPILER="$GCC0" \
+  -DCMAKE_CXX_COMPILER="$GXX0" \
   -DLLVM_ENABLE_PROJECTS="clang;lld" \
   -DLLVM_TARGETS_TO_BUILD="$LLVM_TARGET" \
   -DLLVM_ENABLE_LIBXML2=OFF \
@@ -64,6 +75,7 @@ mkdir -p "$FINAL" "$STAGE2_BUILD"
   -B "$STAGE2_BUILD" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$FINAL" \
+  -DCMAKE_MAKE_PROGRAM="$NINJA" \
   -DCMAKE_C_COMPILER="$STAGE1/bin/clang" \
   -DCMAKE_CXX_COMPILER="$STAGE1/bin/clang++" \
   -DLLVM_USE_LINKER=lld \
