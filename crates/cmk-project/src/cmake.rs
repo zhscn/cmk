@@ -7,8 +7,8 @@ use std::{
 };
 use tokio::process::Command;
 
-use crate::config::{BuildConfig, EnvConfig};
-use crate::process::{completing_read, wait_with_cancel};
+use cmk_config::{BuildConfig, BuildEnv};
+use cmk_core::process::{completing_read, wait_with_cancel};
 
 pub async fn get_project_root() -> Result<PathBuf> {
     let output = Command::new("git")
@@ -31,7 +31,7 @@ pub async fn get_project_root() -> Result<PathBuf> {
 pub struct CMakeProject {
     pub project_root: PathBuf,
     pub build_dirs: HashMap<String, PathBuf>,
-    pub env_config: EnvConfig,
+    pub env_config: BuildEnv,
     pub build_config: BuildConfig,
 }
 
@@ -54,7 +54,7 @@ impl CMakeProject {
             return Err(anyhow!("No CMake build directories found"));
         }
 
-        let env_config = EnvConfig::load(&project_root)?;
+        let env_config = BuildEnv::load(&project_root)?;
         let build_config = BuildConfig::load(&project_root)?;
 
         Ok(Self {

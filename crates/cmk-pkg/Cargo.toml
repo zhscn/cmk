@@ -1,0 +1,16 @@
+[package]
+name = "cmk-pkg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cmk-core = { path = "../cmk-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+futures.workspace = true
+octocrab.workspace = true
+reqwest.workspace = true
+tokio.workspace = true

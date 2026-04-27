@@ -1,0 +1,25 @@
+[package]
+name = "cmk-builder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cmk-core = { path = "../cmk-core" }
+cmk-toolchain = { path = "../cmk-toolchain" }
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tar.workspace = true
+zstd.workspace = true
+walkdir.workspace = true
+url.workspace = true
+libc.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

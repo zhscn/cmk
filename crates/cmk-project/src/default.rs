@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::completing_read;
+use cmk_core::completing_read;
 
 pub enum Template {
     BuiltIn,

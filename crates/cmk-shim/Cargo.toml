@@ -1,0 +1,12 @@
+[package]
+name = "cmk-shim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cmk-shim"
+path = "src/main.rs"
+
+[dependencies]
+cmk-core = { path = "../cmk-core" }

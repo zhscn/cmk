@@ -14,7 +14,7 @@ pub async fn confirm(prompt: &str) -> Result<bool> {
     Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
 }
 
-pub(crate) async fn wait_with_cancel(
+pub async fn wait_with_cancel(
     child: &mut tokio::process::Child,
 ) -> Result<std::process::ExitStatus> {
     tokio::select! {

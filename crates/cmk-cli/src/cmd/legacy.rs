@@ -7,10 +7,12 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use cmk::{
-    CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target,
+use cmk_config::{FmtConfig, LintConfig};
+use cmk_core::{completing_read, confirm};
+use cmk_pkg::{CpmInfo, PackageIndex};
+use cmk_project::{
+    CMakeProject, Target,
     cmake_ast::{CMakeFile, CpmInsertion, render_uri_as_keyword},
-    completing_read, confirm,
     default::load_template,
     get_project_root,
 };

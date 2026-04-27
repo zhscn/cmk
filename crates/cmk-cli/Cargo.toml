@@ -1,0 +1,33 @@
+[package]
+name = "cmk-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cmk"
+path = "src/main.rs"
+
+[dependencies]
+cmk-core = { path = "../cmk-core" }
+cmk-config = { path = "../cmk-config" }
+cmk-project = { path = "../cmk-project" }
+cmk-pkg = { path = "../cmk-pkg" }
+cmk-toolchain = { path = "../cmk-toolchain" }
+cmk-registry = { path = "../cmk-registry" }
+cmk-builder = { path = "../cmk-builder" }
+cmk-deps = { path = "../cmk-deps" }
+
+anyhow.workspace = true
+clap = { workspace = true }
+clap_complete.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+url.workspace = true
+tokio.workspace = true
+ureq.workspace = true
+sha2.workspace = true
+futures.workspace = true
+globset.workspace = true
+octocrab.workspace = true

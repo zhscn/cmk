@@ -1,0 +1,16 @@
+[package]
+name = "cmk-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cmk-core = { path = "../cmk-core" }
+cmk-config = { path = "../cmk-config" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+globset.workspace = true
+tree-sitter.workspace = true
+tree-sitter-cmake.workspace = true

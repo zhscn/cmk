@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
@@ -9,16 +11,16 @@ mod cmd;
 struct Cli {
     #[clap(subcommand)]
     command: Option<SubCommand>,
-    /// Run the default build command
+    /// Build dir override (for the implicit `cmk` → `cmk build` shortcut)
     #[clap(short, long, value_name = "BUILD_DIR")]
     build: Option<String>,
-    /// Run the default build command
+    /// Pick the build target interactively via fzf
     #[clap(short, long, default_value_t = false)]
     interactive: bool,
-    /// Run the default build command
+    /// Number of parallel build jobs
     #[clap(short, long)]
     jobs: Option<usize>,
-    /// Run the default build command
+    /// Specific target name to build
     #[clap(short, long)]
     target: Option<String>,
 }
@@ -182,6 +184,24 @@ enum SubCommand {
         #[clap(short, long)]
         verbose: bool,
     },
+    /// Manage clang/LLVM toolchains (install, switch, build, etc.)
+    #[clap(name = "toolchain")]
+    Toolchain {
+        #[clap(subcommand)]
+        cmd: ToolchainCmd,
+    },
+    /// Manage project dependencies declared under `[deps.*]` (M5+).
+    #[clap(name = "deps")]
+    Deps {
+        #[clap(subcommand)]
+        cmd: DepsCmd,
+    },
+    /// Manage cmk's global cache directories.
+    #[clap(name = "cache")]
+    Cache {
+        #[clap(subcommand)]
+        cmd: CacheCmd,
+    },
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -198,6 +218,101 @@ enum PkgCmd {
         #[clap(required = true)]
         opts: Vec<String>,
     },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ToolchainCmd {
+    /// Install a release (from a registry, or a local manifest).
+    Install {
+        /// Release version (e.g. `18.1.8`). Required unless --manifest given.
+        version: Option<String>,
+        /// Comma-separated subset of toolchain,devel,tools-extra. Default: all.
+        #[arg(long)]
+        components: Option<String>,
+        /// Manifest path or http(s):// / file:// URL (bypasses registry).
+        #[arg(long)]
+        manifest: Option<String>,
+    },
+    /// Remove an installed version.
+    Remove { version: String },
+    /// List installed versions, or registry-available with --available.
+    List {
+        #[arg(long)]
+        available: bool,
+    },
+    /// Set the active version (writes ~/.cmk/current).
+    Use { version: String },
+    /// Print the path of <bin> in the active version.
+    Which { bin: String },
+    /// Run a binary from a specific version: `cmk toolchain exec 18.1.8 -- clang foo.c`.
+    Exec {
+        version: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        rest: Vec<String>,
+    },
+    /// Garbage-collect downloads/ + build-cache/, and (with --keep N) drop
+    /// all installed versions except the N most recently installed.
+    Gc {
+        #[arg(long)]
+        keep: Option<usize>,
+    },
+    /// Build a release from source via Recipe (M10+).
+    Build {
+        version: String,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        image: Option<String>,
+        #[arg(long, value_enum)]
+        runtime: Option<RuntimeArg>,
+        #[arg(long)]
+        no_bootstrap: bool,
+        #[arg(long)]
+        force_bootstrap: bool,
+        #[arg(long)]
+        no_container: bool,
+        #[arg(long)]
+        shell: bool,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// LLVM source (URL or local llvm-project root). Default: upstream tarball.
+        #[arg(long)]
+        source: Option<String>,
+    },
+    /// Publish a build directory to a registry (M11+).
+    Publish {
+        dir: PathBuf,
+        #[arg(long)]
+        to: String,
+    },
+}
+
+#[derive(Copy, Clone, Debug, clap::ValueEnum)]
+pub enum RuntimeArg {
+    Docker,
+    Podman,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum DepsCmd {
+    /// Resolve `[deps.*]` and ensure `.cmk-deps/install/` is up-to-date.
+    Install,
+    /// Remove `.cmk-deps/`.
+    Clean,
+    /// List dependencies recorded in the current view.
+    List,
+    /// Print stamp inputs vs. recorded stamps for each dep.
+    Stamp,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum CacheCmd {
+    /// Remove `~/.cmk/cache/` (project-dep source cache).
+    Clear,
+    /// Print sizes of cmk's cache directories.
+    Size,
 }
 
 #[tokio::main]
@@ -267,8 +382,61 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
+            SubCommand::Toolchain { cmd } => dispatch_toolchain(cmd),
+            SubCommand::Deps { cmd } => dispatch_deps(cmd),
+            SubCommand::Cache { cmd } => dispatch_cache(cmd),
         }
     } else {
         cmd::exec_build(cli.target, cli.build, cli.interactive, cli.jobs).await
     }
+}
+
+fn dispatch_toolchain(c: ToolchainCmd) -> Result<()> {
+    use cmd::toolchain;
+    match c {
+        ToolchainCmd::Install {
+            version,
+            components,
+            manifest,
+        } => toolchain::install::run(version, components, manifest),
+        ToolchainCmd::Remove { version } => toolchain::remove::run(&version),
+        ToolchainCmd::List { available } => toolchain::list::run(available),
+        ToolchainCmd::Use { version } => toolchain::use_::run(&version),
+        ToolchainCmd::Which { bin } => toolchain::which::run(&bin),
+        ToolchainCmd::Exec { version, rest } => toolchain::exec::run(&version, &rest),
+        ToolchainCmd::Gc { keep } => toolchain::gc::run(keep),
+        ToolchainCmd::Build {
+            version,
+            target,
+            host: _,
+            image,
+            runtime,
+            no_bootstrap: _,
+            force_bootstrap: _,
+            no_container,
+            shell,
+            output,
+            source,
+        } => toolchain::build::run(toolchain::build::BuildArgs {
+            version,
+            target,
+            no_container,
+            output,
+            source,
+            image,
+            runtime,
+            shell,
+        }),
+        ToolchainCmd::Publish { .. } => {
+            anyhow::bail!("`cmk toolchain publish` lands in M11 (release pipeline)")
+        }
+    }
+}
+
+fn dispatch_deps(_c: DepsCmd) -> Result<()> {
+    anyhow::bail!("`cmk deps` lands in M5+; see docs/design.md §7")
+}
+
+fn dispatch_cache(_c: CacheCmd) -> Result<()> {
+    anyhow::bail!("`cmk cache` lands alongside `cmk deps` in M5+")
 }
