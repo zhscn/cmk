@@ -18,10 +18,10 @@ CMAKE="$PREFIX/bin/cmake"
 NINJA="$PREFIX/bin/ninja"
 PYTHON="$PREFIX/bin/python3"
 
-# stage0 gcc-toolset isn't always on PATH in fresh RUN layers — locate it once
-# and pass explicitly to cmake (avoids relying on Dockerfile ENV which would
-# otherwise invalidate the deps cache when changed).
-GCC_BIN=/opt/rh/gcc-toolset-12/root/usr/bin
+# cmake bypasses PATH for compiler detection in some configurations, so pass
+# absolute paths. GCC_BIN comes from the Dockerfile (gcc-toolset-12 on el8,
+# devtoolset-11 on el7); fall back to whatever `gcc` resolves to via PATH.
+GCC_BIN="${GCC_BIN:-$(dirname "$(command -v gcc)")}"
 GCC0="$GCC_BIN/gcc"
 GXX0="$GCC_BIN/g++"
 export PATH="$PREFIX/bin:$GCC_BIN:$PATH"

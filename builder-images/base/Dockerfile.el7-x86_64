@@ -1,0 +1,127 @@
+# cmk-builder-base:el7-x86-<rev>
+#
+# Glibc 2.17 baseline (CentOS 7) for x86_64. We deliberately stay on el7 here
+# to give the produced clang the widest GLIBC compatibility window — RHEL/
+# CentOS 7+, Ubuntu 16.04+, older SLES still run it.
+#
+# aarch64 lives on el8 instead (see Dockerfile.el8-aarch64): the el7 era
+# predates mature aarch64 distro support, so el8 is the practical floor.
+#
+# Build:
+#   docker buildx build \
+#     --platform linux/amd64 \
+#     -f builder-images/base/Dockerfile.el7-x86_64 \
+#     -t cmk-builder-base:el7-x86-1 \
+#     builder-images/base
+#
+# Expect ~2h on a fast x86_64 runner.
+
+# ============================================================
+# stage 1: do all the building
+# ============================================================
+FROM centos:7 AS bootstrap
+
+ARG JOBS=8
+ENV JOBS=${JOBS}
+
+# CentOS 7 EOL'd 2024-06; mirror.centos.org returns 404. Repoint everything
+# at vault.centos.org so yum works at all.
+RUN sed -i \
+      -e 's|^mirrorlist=|#mirrorlist=|g' \
+      -e 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' \
+      /etc/yum.repos.d/CentOS-*.repo
+
+# centos-release-scl drops new repo files that also point at mirror.centos.org;
+# rewrite those before pulling devtoolset.
+RUN yum -y install centos-release-scl-rh centos-release-scl \
+ && sed -i \
+      -e 's|^mirrorlist=|#mirrorlist=|g' \
+      -e 's|^# baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' \
+      -e 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' \
+      /etc/yum.repos.d/CentOS-SCLo-*.repo
+
+# devtoolset-11 = gcc 11.2 — newest SCL available on CentOS 7; plenty for
+# building modern LLVM. We avoid distro cmake/python/git so /opt/cmk-base
+# stays the single source of truth for runtime tools.
+RUN yum -y install \
+      devtoolset-11-gcc devtoolset-11-gcc-c++ \
+      devtoolset-11-binutils devtoolset-11-libstdc++-devel \
+      devtoolset-11-runtime \
+      make patch tar gzip xz which file findutils diffutils \
+      perl-core libffi-devel \
+      ca-certificates curl gettext \
+ && yum clean all
+
+# Make stage0 gcc the default for the whole bootstrap stage. GCC_BIN is read
+# by build-clang.sh to point cmake at the right C/C++ compilers.
+ENV PATH=/opt/rh/devtoolset-11/root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ENV LD_LIBRARY_PATH=/opt/rh/devtoolset-11/root/usr/lib64
+ENV GCC_BIN=/opt/rh/devtoolset-11/root/usr/bin
+
+WORKDIR /work
+
+# Split COPY into deps + clang so editing build-clang.sh doesn't invalidate
+# the (slow) deps build cache.
+COPY deps.lock fetch.sh build-deps.sh /work/
+RUN chmod +x /work/fetch.sh /work/build-deps.sh
+
+# ----- 1. host deps into /opt/cmk-base/deps -----
+RUN /work/build-deps.sh
+
+# ----- 2. fetch + extract LLVM source -----
+RUN . /work/deps.lock \
+ && /work/fetch.sh llvm "$LLVM_URL" "$LLVM_SHA" /tmp/cmk-dl/llvm.tar.xz \
+ && mkdir -p /tmp/cmk-src/llvm-project \
+ && tar -xJf /tmp/cmk-dl/llvm.tar.xz -C /tmp/cmk-src/llvm-project --strip-components=1 \
+ && rm -f /tmp/cmk-dl/llvm.tar.xz
+
+# ----- 3. two-stage clang bootstrap into /opt/cmk-base/bootstrap-clang -----
+COPY build-clang.sh /work/
+RUN chmod +x /work/build-clang.sh
+ENV LLVM_SRC=/tmp/cmk-src/llvm-project
+RUN /work/build-clang.sh
+
+# ----- 4. write base manifest + clean -----
+RUN /opt/cmk-base/bootstrap-clang/bin/clang --version > /opt/cmk-base/clang-version.txt \
+ && /opt/cmk-base/deps/bin/cmake --version | head -1 > /opt/cmk-base/cmake-version.txt \
+ && cat /work/deps.lock > /opt/cmk-base/deps.lock \
+ && printf '{"base_rev":"el7-x86-1","built":"%s","arch":"%s"}\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(uname -m)" \
+        > /opt/cmk-base/manifest.json \
+ && rm -rf /tmp/cmk-src /tmp/cmk-dl /tmp/stage1 /tmp/stage1-build /tmp/stage2-build /work
+
+# Strip clang/llvm binaries to shrink image.
+RUN find /opt/cmk-base/bootstrap-clang/bin /opt/cmk-base/deps/bin -type f -executable \
+      -exec sh -c 'file "$1" | grep -q "ELF.*executable" && strip --strip-unneeded "$1" 2>/dev/null || true' _ {} \; \
+ && find /opt/cmk-base -name '*.a' -prune -o -type f \( -name '*.so*' \) -print \
+      | xargs -r strip --strip-unneeded 2>/dev/null || true
+
+# ============================================================
+# stage 2: minimal runtime
+# ============================================================
+FROM centos:7 AS final
+
+RUN sed -i \
+      -e 's|^mirrorlist=|#mirrorlist=|g' \
+      -e 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' \
+      /etc/yum.repos.d/CentOS-*.repo
+
+# gcc here is just for libgcc_s.so unversioned symlink + crt*.o; glibc-devel
+# brings in the headers/Scrt1.o the LLVM build needs at link time.
+RUN yum -y install \
+      findutils xz zstd \
+      glibc-devel gcc \
+      which file diffutils patch \
+ && yum clean all
+
+COPY --from=bootstrap /opt/cmk-base /opt/cmk-base
+
+# cmk's render_script also re-exports this; bake it in for `--shell` debugging.
+ENV PATH=/opt/cmk-base/bootstrap-clang/bin:/opt/cmk-base/deps/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ENV LANG=en_US.UTF-8
+
+# Sanity check at image-build time.
+RUN clang --version && cmake --version | head -1 && ninja --version
+
+WORKDIR /work
+LABEL org.cmk.base.rev="el7-x86-1"

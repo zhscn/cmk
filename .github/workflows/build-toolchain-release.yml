@@ -2,9 +2,9 @@ name: build-toolchain-release
 
 # Manually triggered: builds an LLVM release for one platform and uploads
 # the cmk packaging (toolchain/devel/tools-extra tarballs + manifest fragment)
-# as a workflow artifact. Currently scoped to linux-x86_64; extend the matrix
-# as more runners come online (linux-aarch64 = ubuntu-24.04-arm, darwin-arm64
-# = macos-14).
+# as a workflow artifact. Currently scoped to linux-x86_64 (built on el7 for
+# glibc 2.17 baseline); extend the matrix as more runners come online
+# (linux-aarch64 = ubuntu-24.04-arm + el8 image, darwin-arm64 = macos-14).
 on:
   workflow_dispatch:
     inputs:
@@ -22,11 +22,11 @@ jobs:
           - target: linux-x86_64
             runner: ubuntu-latest
             platform: linux/amd64
-            base_dockerfile: builder-images/base/Dockerfile.el8-x86_64
-            recipe_dockerfile: builder-images/recipe/Dockerfile.el8-x86_64
-            base_tag: cmk-builder-base:el8-x86-1
-            recipe_tag: cmk-builder:el8-x86-1
-            cache_scope: base-el8-x86
+            base_dockerfile: builder-images/base/Dockerfile.el7-x86_64
+            recipe_dockerfile: builder-images/recipe/Dockerfile.el7-x86_64
+            base_tag: cmk-builder-base:el7-x86-1
+            recipe_tag: cmk-builder:el7-x86-1
+            cache_scope: base-el7-x86
 
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
