@@ -1,0 +1,18 @@
+# cmk-builder:el8-aarch64-<rev>
+#
+# Thin layer over the base image. cmk's `render_script` (cmk-builder/src/linux.rs)
+# generates the actual /work/run-build.sh, so this layer mostly exists for tag
+# stability + future recipe-specific tweaks (extra env, sysroot, etc).
+#
+# Build:
+#   docker buildx build \
+#     --platform linux/arm64 \
+#     -f builder-images/recipe/Dockerfile.el8-aarch64 \
+#     -t cmk-builder:el8-aarch64-1 \
+#     builder-images/recipe
+
+ARG BASE=cmk-builder-base:el8-aarch64-1
+FROM ${BASE}
+
+LABEL org.cmk.recipe.rev="el8-aarch64-1"
+WORKDIR /work
