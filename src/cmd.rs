@@ -10,7 +10,9 @@ use anyhow::{Context, Result, anyhow};
 use cmk::{
     CMakeProject, CpmInfo, FmtConfig, LintConfig, PackageIndex, Target,
     cmake_ast::{CMakeFile, CpmInsertion, render_uri_as_keyword},
-    completing_read, confirm, default::load_template, get_project_root,
+    completing_read, confirm,
+    default::load_template,
+    get_project_root,
 };
 use tokio::process::Command;
 
@@ -863,8 +865,8 @@ fn compute_signature(
     h.update(source.to_string_lossy().as_bytes());
     h.update([0u8]);
 
-    let src_meta = std::fs::metadata(source)
-        .with_context(|| format!("stat {}", source.display()))?;
+    let src_meta =
+        std::fs::metadata(source).with_context(|| format!("stat {}", source.display()))?;
     h.update(src_meta.len().to_le_bytes());
     let src_mtime = src_meta
         .modified()?
@@ -1076,12 +1078,11 @@ pub(crate) async fn exec_lint(
                     .as_ref()
                     .map(|_| cache_dir.join(format!("{}.json", cache_key_for(file))));
 
-                let cached: Option<LintCacheEntry> =
-                    cache_path.as_ref().and_then(|p| {
-                        std::fs::read(p)
-                            .ok()
-                            .and_then(|b| serde_json::from_slice(&b).ok())
-                    });
+                let cached: Option<LintCacheEntry> = cache_path.as_ref().and_then(|p| {
+                    std::fs::read(p)
+                        .ok()
+                        .and_then(|b| serde_json::from_slice(&b).ok())
+                });
 
                 let (stdout_s, stderr_s, success, warnings, errors, from_cache) =
                     if let (Some(sig), Some(entry)) = (signature.as_ref(), cached.as_ref())
@@ -1106,10 +1107,7 @@ pub(crate) async fn exec_lint(
                             Err(e) => {
                                 failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 let _g = stdout_lock.lock().await;
-                                eprintln!(
-                                    "clang-tidy failed to start for {}: {e}",
-                                    file.display()
-                                );
+                                eprintln!("clang-tidy failed to start for {}: {e}", file.display());
                                 continue;
                             }
                         };
@@ -1118,8 +1116,7 @@ pub(crate) async fn exec_lint(
                         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                         let warnings =
                             count_diag(&stdout, "warning:") + count_diag(&stderr, "warning:");
-                        let errors =
-                            count_diag(&stdout, "error:") + count_diag(&stderr, "error:");
+                        let errors = count_diag(&stdout, "error:") + count_diag(&stderr, "error:");
                         if let (Some(sig), Some(p)) = (signature.as_ref(), cache_path.as_ref()) {
                             let entry = LintCacheEntry {
                                 signature: sig.clone(),

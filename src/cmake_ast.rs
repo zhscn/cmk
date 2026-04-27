@@ -377,7 +377,13 @@ mod tests {
         let src = "CPMAddPackage(\"gh:fmtlib/fmt#12.1.0\")\n";
         let mut f = CMakeFile::from_source(src.to_string(), PathBuf::from("test")).unwrap();
         let calls = f.cpm_calls();
-        let r = calls[0].uri.as_ref().unwrap().version_range.clone().unwrap();
+        let r = calls[0]
+            .uri
+            .as_ref()
+            .unwrap()
+            .version_range
+            .clone()
+            .unwrap();
         f.splice(r, "12.2.0");
         assert!(f.source.contains("gh:fmtlib/fmt#12.2.0"));
     }
@@ -416,10 +422,7 @@ mod tests {
         .unwrap();
         let calls = f.cpm_calls();
         let uri = calls[0].uri.as_ref().unwrap();
-        let rendered = render_uri_as_keyword(
-            uri,
-            &[("FMT_INSTALL".to_string(), "ON".to_string())],
-        );
+        let rendered = render_uri_as_keyword(uri, &[("FMT_INSTALL".to_string(), "ON".to_string())]);
         assert_eq!(
             rendered,
             "CPMAddPackage(\n  NAME fmt\n  GITHUB_REPOSITORY fmtlib/fmt\n  GIT_TAG 12.1.0\n  OPTIONS\n    \"FMT_INSTALL ON\"\n)"
