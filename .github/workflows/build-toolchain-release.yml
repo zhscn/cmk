@@ -77,15 +77,15 @@ jobs:
             JOBS=4
 
       - name: Build recipe image
-        uses: docker/build-push-action@v5
-        with:
-          context: builder-images/recipe
-          file: ${{ matrix.recipe_dockerfile }}
-          platforms: ${{ matrix.platform }}
-          tags: ${{ matrix.recipe_tag }}
-          load: true
-          build-args: |
-            BASE=${{ matrix.base_tag }}
+        # Plain `docker build` (not buildx) so it uses the host daemon's image
+        # store — which has the base image from the previous `load: true` step.
+        # The buildx docker-container driver can't see local images.
+        run: |
+          docker build \
+            -f "${{ matrix.recipe_dockerfile }}" \
+            -t "${{ matrix.recipe_tag }}" \
+            --build-arg "BASE=${{ matrix.base_tag }}" \
+            builder-images/recipe
 
       - name: cmk toolchain build
         env:
