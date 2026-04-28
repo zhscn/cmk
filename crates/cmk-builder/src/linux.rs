@@ -226,7 +226,12 @@ $CMAKE -G Ninja "$LLVM_SRC/llvm" \
   -DLLVM_TARGETS_TO_BUILD="{llvm_target}" \
   -DLLVM_ENABLE_LIBXML2=OFF \
   -DLLVM_ENABLE_ZLIB=ON \
-  -DZLIB_ROOT=/opt/cmk-base/deps \
+  -DZLIB_INCLUDE_DIR=/opt/cmk-base/deps/include \
+  -DZLIB_LIBRARY=/opt/cmk-base/deps/lib/libz.a \
+  -DLLVM_ENABLE_ZSTD=ON \
+  -DLLVM_USE_STATIC_ZSTD=ON \
+  -DZSTD_INCLUDE_DIR=/opt/cmk-base/deps/include \
+  -DZSTD_LIBRARY=/opt/cmk-base/deps/lib/libzstd.a \
   -DLLVM_ENABLE_ASSERTIONS=OFF \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -305,6 +310,9 @@ mod tests {
             "/opt/cmk-base/bootstrap-clang/bin/clang",
             "x86_64-unknown-linux-gnu",
             "COMPILER_RT_BUILD_SANITIZERS=ON",
+            "ZLIB_LIBRARY=/opt/cmk-base/deps/lib/libz.a",
+            "LLVM_USE_STATIC_ZSTD=ON",
+            "ZSTD_LIBRARY=/opt/cmk-base/deps/lib/libzstd.a",
         ] {
             assert!(!s.contains("LLVM_ENABLE_LLD=ON"), "ENABLE_LLD must not coexist with USE_LINKER=lld");
             assert!(s.contains(needle), "script missing `{needle}`:\n{s}");

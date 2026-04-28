@@ -99,7 +99,7 @@ rm -rf ccache && mkdir ccache && extract "$DL/ccache.tar.xz" ccache
 ( cd ccache
   "$PREFIX/bin/cmake" -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DREDIS_STORAGE_BACKEND=OFF -DENABLE_TESTING=OFF \
-    -DZSTD_FROM_INTERNET=OFF -DZSTD_LIBRARY="$PREFIX/lib/libzstd.so" \
+    -DZSTD_FROM_INTERNET=OFF -DZSTD_LIBRARY="$PREFIX/lib/libzstd.a" \
     -DZSTD_INCLUDE_DIR="$PREFIX/include"
   "$PREFIX/bin/cmake" --build build -j"$JOBS"
   "$PREFIX/bin/cmake" --install build )
