@@ -116,6 +116,11 @@ RUN yum -y install \
 
 COPY --from=bootstrap /opt/cmk-base /opt/cmk-base
 
+# Make ccache (and any other tool in /opt/cmk-base/deps that's dyn-linked to
+# our libzstd/openssl/zlib) findable at runtime. el7's system zstd package
+# doesn't ship libzstd.so.1, and we want our pinned versions anyway.
+RUN echo /opt/cmk-base/deps/lib > /etc/ld.so.conf.d/cmk-base.conf && ldconfig
+
 # cmk's render_script also re-exports this; bake it in for `--shell` debugging.
 ENV PATH=/opt/cmk-base/bootstrap-clang/bin:/opt/cmk-base/deps/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ENV LANG=en_US.UTF-8
